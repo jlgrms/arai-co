@@ -1,0 +1,26 @@
+{
+  "name": "telehealth-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone telehealth application monorepo (pnpm workspaces)",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:backend": "pnpm --filter @telehealth/backend dev",
+    "dev:frontend": "pnpm --filter @telehealth/frontend dev",
+    "build": "pnpm --filter \"./apps/*\" build",
+    "lint": "pnpm --filter \"./apps/*\" lint",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "test": "pnpm --filter \"./apps/*\" test",
+    "compose:up": "docker compose up --build",
+    "compose:down": "docker compose down",
+    "compose:reset": "docker compose down -v"
+  },
+  "devDependencies": {
+    "prettier": "3.3.3"
+  }
+}
