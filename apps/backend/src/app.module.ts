@@ -5,10 +5,10 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { PatientsModule } from './patients/patients.module';
 import { DoctorsModule } from './doctors/doctors.module';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { AdminModule } from './admin/admin.module';
 
-// Root module. Layer 3 wires auth + RBAC and the temporary per-role ping routes.
-// Real domain feature modules arrive in Layer 4.
+// Root module. Layer 3 wired auth + RBAC; Layer 4 adds real domain modules.
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -17,6 +17,7 @@ import { AdminModule } from './admin/admin.module';
     AuthModule,
     PatientsModule,
     DoctorsModule,
+    AppointmentsModule,
     AdminModule,
   ],
 })

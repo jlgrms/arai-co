@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
 
 // Single, consistent error envelope for the whole API (ai-dev-instructions §8).
@@ -66,6 +67,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
 
       return { statusCode: status, error: this.reasonPhrase(status), message };
+    }
+
+    // Prisma known request errors: map DB-level constraint/record failures to
+    // proper HTTP status codes instead of leaking an opaque 500.
+    //   P2002 = unique constraint violation -> 409 Conflict (defense-in-depth:
+    //           e.g. a future caller races to consume an Appointment.availabilityId
+    //           unique slot; the conflict check catches the common case, this is
+    //           the backstop).
+    //   P2025 = required record not found -> 404 Not Found.
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      const code = exception.code;
+      if (code === 'P2002') {
+        return { statusCode: 409, error: this.reasonPhrase(409), message: 'Resource already exists' };
+      }
+      if (code === 'P2025') {
+        return { statusCode: 404, error: this.reasonPhrase(404), message: 'Resource not found' };
+      }
     }
 
     // Unknown/unexpected: scrub, never leak internals.
