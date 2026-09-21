@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
-// Layer 3: bootstrap now includes global validation for auth DTOs.
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );
+
+  // One consistent error envelope for every failure (ai-dev-instructions §8).
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const port = process.env.BACKEND_PORT ? Number(process.env.BACKEND_PORT) : 3000;
 
