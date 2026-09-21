@@ -1,0 +1,260 @@
+// Telehealth App — Prisma schema (Layer 2, data model only)
+// Ground truth: telehealth-c4-architecture.md "Level 4 — Data Model".
+// No service/business logic in this layer — schema + seed only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — values exactly as specified in the C4 entity diagram, nothing added.
+// ---------------------------------------------------------------------------
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum AccountState {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AppointmentStatus {
+  BOOKED
+  RESCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum ConsultationState {
+  SCHEDULED
+  JOINED
+  IN_PROGRESS
+  COMPLETED
+}
+
+// ---------------------------------------------------------------------------
+// User — everything foreign-keys to this.
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String
+  role         Role
+  accountState AccountState @default(ACTIVE)
+  stateReason  String?
+  createdAt    DateTime     @default(now())
+
+  patientProfile PatientProfile?
+  doctorProfile  DoctorProfile?
+
+  notifications Notification[]
+  auditLogs     AuditLog[]     @relation("AdminAuditLogs")
+
+  @@index([role])
+  @@index([accountState])
+}
+
+// ---------------------------------------------------------------------------
+// PatientProfile / DoctorProfile
+// ---------------------------------------------------------------------------
+
+model PatientProfile {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @unique @db.Uuid
+  name                String
+  birthday            DateTime? @db.Date
+  weight              Float?
+  height              Float?
+  contactDetails      String?
+  basicMedicalHistory String?
+  avatarInitialsOrRef String?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+
+  @@index([userId])
+  @@index([name])
+}
+
+model DoctorProfile {
+  id             String         @id @default(uuid()) @db.Uuid
+  userId         String         @unique @db.Uuid
+  name           String
+  biography      String?
+  specialization String
+  approvalStatus ApprovalStatus @default(PENDING)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  availabilities Availability[]
+  appointments   Appointment[]
+
+  @@index([userId])
+  @@index([specialization])
+  @@index([approvalStatus])
+  @@index([name])
+}
+
+// ---------------------------------------------------------------------------
+// Availability — depends on DoctorProfile.
+// ---------------------------------------------------------------------------
+
+model Availability {
+  id              String   @id @default(uuid()) @db.Uuid
+  doctorProfileId String   @db.Uuid
+  startTime       DateTime
+  endTime         DateTime
+  isBlocked       Boolean  @default(false)
+
+  doctorProfile DoctorProfile @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  // One availability slot is "consumed by" at most one appointment (C4: ||--o|).
+  appointment   Appointment?
+
+  @@index([doctorProfileId])
+  @@index([startTime])
+  @@index([doctorProfileId, startTime])
+}
+
+// ---------------------------------------------------------------------------
+// Appointment — depends on PatientProfile, DoctorProfile, Availability.
+// reschedule updates availabilityId on THIS row (frees the old slot automatically).
+// ---------------------------------------------------------------------------
+
+model Appointment {
+  id               String            @id @default(uuid()) @db.Uuid
+  patientProfileId String            @db.Uuid
+  doctorProfileId  String            @db.Uuid
+  availabilityId   String?           @unique @db.Uuid
+  status           AppointmentStatus @default(BOOKED)
+  scheduledAt      DateTime
+
+  patientProfile PatientProfile @relation(fields: [patientProfileId], references: [id], onDelete: Cascade)
+  doctorProfile  DoctorProfile  @relation(fields: [doctorProfileId], references: [id], onDelete: Cascade)
+  availability   Availability?  @relation(fields: [availabilityId], references: [id], onDelete: SetNull)
+
+  consultationSession ConsultationSession?
+
+  @@index([patientProfileId])
+  @@index([doctorProfileId])
+  @@index([availabilityId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// ---------------------------------------------------------------------------
+// ConsultationSession — depends on Appointment (1 appointment : 0..1 session).
+// ---------------------------------------------------------------------------
+
+model ConsultationSession {
+  id            String            @id @default(uuid()) @db.Uuid
+  appointmentId String            @unique @db.Uuid
+  state         ConsultationState @default(SCHEDULED)
+  joinedAt      DateTime?
+  completedAt   DateTime?
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  consultationNotes ConsultationNote[]
+  prescriptions     Prescription[]
+
+  @@index([appointmentId])
+  @@index([state])
+}
+
+// ---------------------------------------------------------------------------
+// ConsultationNote / Prescription — depend on ConsultationSession.
+// ---------------------------------------------------------------------------
+
+model ConsultationNote {
+  id              String   @id @default(uuid()) @db.Uuid
+  sessionId       String   @db.Uuid
+  findings        String?
+  recommendations String?
+  recordedAt      DateTime @default(now())
+
+  session ConsultationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([recordedAt])
+}
+
+model Prescription {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @db.Uuid
+  details   String
+  issuedAt  DateTime @default(now())
+
+  session ConsultationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([issuedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Notification — leaf table, linked to User.
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  type      String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// AuditLog — leaf table, linked to User (admin).
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id                 String   @id @default(uuid()) @db.Uuid
+  adminUserId        String   @db.Uuid
+  action             String
+  affectedRecordType String
+  affectedRecordId   String?  @db.Uuid
+  reason             String?
+  timestamp          DateTime @default(now())
+
+  adminUser User @relation("AdminAuditLogs", fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([action])
+  @@index([affectedRecordType, affectedRecordId])
+  @@index([timestamp])
+}
+
+// ---------------------------------------------------------------------------
+// SymptomSpecialtyMap — leaf table used by Layer 4 deterministic matching.
+// No DB-level FK: matched to DoctorProfile.specialization by string equality.
+// ---------------------------------------------------------------------------
+
+model SymptomSpecialtyMap {
+  id               String @id @default(uuid()) @db.Uuid
+  symptomOrConcern String
+  specialty        String
+
+  @@index([specialty])
+  @@index([symptomOrConcern])
+}
