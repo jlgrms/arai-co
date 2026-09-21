@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
-// Layer 1: minimal bootstrap. Feature modules are added in later layers.
+// Layer 3: bootstrap now includes global validation for auth DTOs.
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
@@ -10,6 +11,11 @@ async function bootstrap(): Promise<void> {
     origin: true,
     credentials: true,
   });
+
+  // Enforce DTO decorators; strip unknown properties; transform payloads.
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
 
   const port = process.env.BACKEND_PORT ? Number(process.env.BACKEND_PORT) : 3000;
 
