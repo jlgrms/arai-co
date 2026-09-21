@@ -38,6 +38,9 @@ export class AppointmentsService {
 
     await this.assertNoConflict(slot.doctorProfileId, slot, null);
 
+    // Session is created at BOOKING time (Flag A), atomically with the
+    // appointment, starting in SCHEDULED. A join call later operates on an
+    // existing, addressable session id (matches the C4 dynamic view).
     return this.prisma.appointment.create({
       data: {
         patientProfileId: patient.id,
@@ -45,7 +48,9 @@ export class AppointmentsService {
         availabilityId: slot.id,
         scheduledAt: slot.startTime,
         status: AppointmentStatus.BOOKED,
+        consultationSession: { create: { state: 'SCHEDULED' } },
       },
+      include: { consultationSession: true },
     });
   }
 

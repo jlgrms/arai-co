@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { PatientsModule } from './patients/patients.module';
 import { DoctorsModule } from './doctors/doctors.module';
 import { AppointmentsModule } from './appointments/appointments.module';
+import { ConsultationsModule } from './consultations/consultations.module';
 import { AdminModule } from './admin/admin.module';
 
 // Root module. Layer 3 wired auth + RBAC; Layer 4 adds real domain modules.
@@ -18,6 +19,7 @@ import { AdminModule } from './admin/admin.module';
     PatientsModule,
     DoctorsModule,
     AppointmentsModule,
+    ConsultationsModule,
     AdminModule,
   ],
 })

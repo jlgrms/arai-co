@@ -164,8 +164,12 @@ model ConsultationSession {
   id            String            @id @default(uuid()) @db.Uuid
   appointmentId String            @unique @db.Uuid
   state         ConsultationState @default(SCHEDULED)
-  joinedAt      DateTime?
-  completedAt   DateTime?
+  // joinedAt = first participant to join; patientJoinedAt/doctorJoinedAt track
+  // WHO is present so IN_PROGRESS (both present) is decidable and auditable.
+  joinedAt        DateTime?
+  patientJoinedAt DateTime?
+  doctorJoinedAt  DateTime?
+  completedAt     DateTime?
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
