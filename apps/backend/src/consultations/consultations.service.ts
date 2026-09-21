@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -14,6 +15,9 @@ import {
   ParticipantRole,
   Presence,
 } from '../common/domain/consultation-state-machine';
+import { canAccessRecords, recordGateMessage } from '../common/domain/records-visibility';
+import { CreateNoteDto } from './dto/create-note.dto';
+import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 
 // Maps state-machine rejection reasons to human-readable 409 messages (S5.5
 // pattern: state-conflict -> 409, same envelope as booking conflicts).
@@ -81,6 +85,123 @@ export class ConsultationsService {
     });
   }
 
+  // ---- Records write path (doctor-only; gated on state) ------------------------
+
+  /**
+   * Doctor authors a consultation note (S5.3: findings, recommendations,
+   * summaries). Gate: WRITE = {IN_PROGRESS, COMPLETED} (Flag 1). Append-only: a
+   * new POST adds another note; no edit or delete of a written record.
+   */
+  async addNote(userId: string, role: string, sessionId: string, dto: CreateNoteDto) {
+    const { session } = await this.loadParticipantSession(userId, role, sessionId);
+    await this.assertDoctorOwnsSession(userId, session.appointment.doctorProfileId);
+    this.assertWritable(session.state as ConsultationState);
+
+    if (!dto.findings && !dto.recommendations) {
+      throw new BadRequestException('A note must include findings, recommendations, or both');
+    }
+
+    return this.prisma.consultationNote.create({
+      data: {
+        sessionId: session.id,
+        findings: dto.findings ?? null,
+        recommendations: dto.recommendations ?? null,
+      },
+    });
+  }
+
+  /** Doctor issues a prescription (S5.3). Same gate + append-only + scoping. */
+  async addPrescription(userId: string, role: string, sessionId: string, dto: CreatePrescriptionDto) {
+    const { session } = await this.loadParticipantSession(userId, role, sessionId);
+    await this.assertDoctorOwnsSession(userId, session.appointment.doctorProfileId);
+    this.assertWritable(session.state as ConsultationState);
+
+    return this.prisma.prescription.create({
+      data: { sessionId: session.id, details: dto.details },
+    });
+  }
+
+  // ---- Records read path --------------------------------------------------------
+
+  /**
+   * Records for a single session. Participant-scoped. Visibility is state-gated:
+   *   PATIENT -> COMPLETED only; DOCTOR (treating) -> IN_PROGRESS or COMPLETED.
+   */
+  async getSessionRecords(userId: string, role: string, sessionId: string) {
+    const { session } = await this.loadParticipantSession(userId, role, sessionId);
+    const state = session.state as ConsultationState;
+    const action = role === 'PATIENT' ? 'READ_PATIENT' : 'READ_DOCTOR';
+    if (!canAccessRecords(state, action)) {
+      throw new ConflictException(recordGateMessage(state, action));
+    }
+    return this.recordsForSession(session.id);
+  }
+
+  /**
+   * Patient's own medical records across all their sessions (S5.2). Only
+   * COMPLETED sessions are exposed to the patient.
+   */
+  async getMyRecords(userId: string) {
+    const p = await this.prisma.patientProfile.findUnique({ where: { userId } });
+    if (!p) throw new NotFoundException('Patient profile not found');
+
+    const sessions = await this.prisma.consultationSession.findMany({
+      where: { state: 'COMPLETED', appointment: { patientProfileId: p.id } },
+      include: {
+        consultationNotes: true,
+        prescriptions: true,
+        appointment: { include: { doctorProfile: true } },
+      },
+      orderBy: { completedAt: 'desc' },
+    });
+
+    return sessions.map((s) => ({
+      sessionId: s.id,
+      completedAt: s.completedAt,
+      doctorName: s.appointment.doctorProfile?.name ?? null,
+      specialization: s.appointment.doctorProfile?.specialization ?? null,
+      notes: s.consultationNotes,
+      prescriptions: s.prescriptions,
+    }));
+  }
+
+  /**
+   * Doctor views a patient's records (S5.3 "relevant patient records"). Scoping
+   * key (Flag 2): records are relevant iff an appointment exists between THIS
+   * doctor and THAT patient -- not all patients, not completed-sessions-only.
+   * Notes/prescriptions are only exposed once the session is doctor-readable.
+   */
+  async getPatientRecordsForDoctor(userId: string, patientProfileId: string) {
+    const d = await this.prisma.doctorProfile.findUnique({ where: { userId } });
+    if (!d) throw new NotFoundException('Doctor profile not found');
+
+    const appointmentCount = await this.prisma.appointment.count({
+      where: { doctorProfileId: d.id, patientProfileId },
+    });
+    if (appointmentCount === 0) {
+      // No doctor-patient appointment relation -> not "relevant" to this doctor.
+      throw new ForbiddenException('You have no appointments with this patient');
+    }
+
+    const sessions = await this.prisma.consultationSession.findMany({
+      where: { appointment: { doctorProfileId: d.id, patientProfileId } },
+      include: { consultationNotes: true, prescriptions: true, appointment: true },
+      orderBy: { appointment: { scheduledAt: 'desc' } },
+    });
+
+    return sessions.map((s) => {
+      const readable = canAccessRecords(s.state as ConsultationState, 'READ_DOCTOR');
+      return {
+        sessionId: s.id,
+        state: s.state,
+        scheduledAt: s.appointment.scheduledAt,
+        // Upcoming/SCHEDULED sessions have no clinical content to expose yet.
+        notes: readable ? s.consultationNotes : [],
+        prescriptions: readable ? s.prescriptions : [],
+      };
+    });
+  }
+
   // ---- Read (participant-scoped) -----------------------------------------------
 
   async getOne(userId: string, role: string, sessionId: string) {
@@ -89,6 +210,26 @@ export class ConsultationsService {
   }
 
   // ---- Helpers ------------------------------------------------------------------
+
+  private async recordsForSession(sessionId: string) {
+    const [notes, prescriptions] = await Promise.all([
+      this.prisma.consultationNote.findMany({ where: { sessionId }, orderBy: { recordedAt: 'asc' } }),
+      this.prisma.prescription.findMany({ where: { sessionId }, orderBy: { issuedAt: 'asc' } }),
+    ]);
+    return { sessionId, notes, prescriptions };
+  }
+
+  private assertWritable(state: ConsultationState): void {
+    if (!canAccessRecords(state, 'WRITE')) {
+      throw new ConflictException(recordGateMessage(state, 'WRITE'));
+    }
+  }
+
+  private async assertDoctorOwnsSession(userId: string, doctorProfileId: string): Promise<void> {
+    const d = await this.prisma.doctorProfile.findUnique({ where: { userId } });
+    if (!d) throw new NotFoundException('Doctor profile not found');
+    if (d.id !== doctorProfileId) throw new ForbiddenException('Not your consultation session');
+  }
 
   /**
    * Loads a session by id AND enforces participant scoping (same pattern as
