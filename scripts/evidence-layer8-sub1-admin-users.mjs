@@ -8,7 +8,7 @@
 //   U4  search narrows the list server-side (email substring)
 //   U5  search matches a profile NAME, not just email
 //   U6  role filter narrows to doctors only
-//   U7  status filter narrows to the suspended account
+//   U7  status filter narrows to exactly the SUSPENDED set the API reports
 //   U8  filters compose (search AND role AND status)
 //   U9  no-match shows the filtered empty state; Clear resets
 //   U10 suspend: confirm dialog, reason recorded, badge flips, reason shows inline
@@ -223,7 +223,13 @@ await step('U6 role filter narrows to doctors only', async () => {
 });
 
 await step('U7 status filter narrows to the suspended account', async () => {
-  // Arrange: suspend the fixture so exactly one SUSPENDED account exists.
+  // Arrange: suspend the fixture. NOTE: it is NOT the only SUSPENDED account —
+  // the seed includes `suspended.patient@example.com` so the login-403 branch is
+  // reachable (DEFERRED item 12). This step previously asserted "exactly 1 row",
+  // which was a hidden dependency on the seed having no suspended account at all.
+  // The assertion is now against the API's own filtered truth, so it stays honest
+  // as the fixture set changes. What it proves is unchanged: the status filter
+  // narrows the list and the narrowed list is exactly the SUSPENDED set.
   await fetch(`${API}/admin/users/${fixture.id}/state`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ accountState: 'SUSPENDED', reason: 'harness U7 arrange' }),
@@ -232,15 +238,28 @@ await step('U7 status filter narrows to the suspended account', async () => {
   await evaluate(setValue('#admin-user-state', 'SUSPENDED'));
   await sleep(900);
   const rows = await evaluate(`Array.from(document.querySelectorAll('[data-testid^="admin-user-row-"]')).map(el => el.getAttribute('data-testid').replace('admin-user-row-',''))`);
-  assert(rows.length === 1, `expected exactly the fixture suspended, got ${rows.length} rows`);
-  assert(rows[0] === fixture.id, `unexpected suspended row ${rows[0]}`);
-  return 'SUSPENDED filter returned exactly the fixture';
+  // Truth: every non-ADMIN account the API reports as SUSPENDED.
+  const expected = (await apiUsers()).filter((u) => u.accountState === 'SUSPENDED').map((u) => u.id).sort();
+  assert(expected.includes(fixture.id), 'arrange failed: fixture is not SUSPENDED per the API');
+  const got = [...rows].sort();
+  assert(
+    rows.length === expected.length,
+    `SUSPENDED filter rendered ${rows.length} rows, API has ${expected.length}`,
+  );
+  assert(
+    JSON.stringify(got) === JSON.stringify(expected),
+    `SUSPENDED rows differ from API:\n got=${got.join(',')}\n exp=${expected.join(',')}`,
+  );
+  assert(rows.includes(fixture.id), 'the fixture row is missing from its own filtered result');
+  return `SUSPENDED filter returned exactly the ${expected.length} suspended account(s) the API reports (incl. the fixture)`;
 });
 
 await step('U8 filters compose (search AND role AND status)', async () => {
   await navigate('/admin/users', 2600);
   await evaluate(setValue('#admin-user-role', 'PATIENT'));
   await evaluate(setValue('#admin-user-state', 'SUSPENDED'));
+  // The unique stamp narrows to this run's fixture regardless of how many other
+  // SUSPENDED accounts the seed provides — so this count IS legitimately 1.
   await evaluate(setValue('#admin-user-search', stamp));
   await sleep(1000);
   const rows = await evaluate(`Array.from(document.querySelectorAll('[data-testid^="admin-user-row-"]')).length`);
