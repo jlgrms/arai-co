@@ -120,14 +120,79 @@ via section 2a (it is a `BOOKED` row, not `CANCELLED`, so check the predicate if
 this recurs). The far-future slot itself is left; it must be deleted by hand or
 by extending the script.
 
-## 3. Notification timestamps render in UTC
+## 3. No seeded PENDING/REJECTED doctor — the review queue is empty by default
+
+**Status:** accepted by explicit stakeholder decision (option B1, Layer 8
+sub-item 2), with a named leak risk. Not dropped.
+
+**What is owed.** `seed.ts` writes `approvalStatus: APPROVED` for all six seeded
+doctors (the only `approvalStatus` write in the seed). The schema default is
+`PENDING`, but nothing is ever seeded in that state. Consequence: on a fresh
+`docker compose up`, the admin Doctor Review screen's **pending queue is empty**,
+so the first thing a reviewer sees is the empty state rather than the review
+workflow the sub-item exists to demonstrate.
+
+**Why it was accepted rather than fixed.** Seeding a `PENDING` doctor was option
+B3 and was declined because it would change the documented baseline above (6
+doctors, all APPROVED) and every harness asserting that count. The stakeholder
+chose B1: a harness creates its own throwaway `PENDING` doctor, exercises
+approve → reject → reopen → edit, and **reclaims it on exit**.
+
+**Delivered mitigation.** `scripts/evidence-layer8-sub2-admin-doctors.mjs`
+registers a doctor via `POST /auth/register/doctor` (which arrives `PENDING`),
+exercises the full review lifecycle against it, and deletes it by **user id
+captured at registration** — never by email pattern — on the success path, the
+failure path (`process.on('exit')`), and `SIGINT`. Because there is no
+user-DELETE endpoint, the delete is SQL via `docker exec psql`, matching
+`db-clean-harness-users.sh`.
+
+**Leak risk (the accepted cost of B1).** This is the **first harness in the repo
+that cleans up after itself**, so its reclaim path is newer and less proven than
+the residue-everything pattern it replaces. Specific risks:
+
+1. **`kill -9` or a hard teardown skips `process.on('exit')`.** Node runs exit
+   hooks for normal exit, uncaught throws, and SIGINT — but not `SIGKILL`, and
+   not if the process dies before the hook's `spawnSync` completes. A fixture
+   would then survive as an orphaned `PENDING` doctor sitting in the review queue.
+2. **The delete shells out to `docker`.** If the `telehealth-postgres` container
+   is renamed or absent, `spawnSync` fails and the fixture survives. The harness
+   prints `DELETE FAILED`, and then verifies absence via `GET /admin/doctors`
+   rather than trusting the delete's exit code — but it cannot repair.
+3. **Audit rows are deliberately NOT reclaimed.** The audit log is append-only by
+   design, so each run adds ~4 `DOCTOR_APPROVAL_UPDATE` entries referencing a
+   now-deleted profile id. Intended (the log must not be rewritten), but it means
+   the admin Audit Log view accumulates rows pointing at a doctor that no longer
+   exists.
+
+**Safety net.** `l8s2%` was added to `PREFIXES` in `db-clean-harness-users.sh`,
+so even a leaked fixture is reclaimable by
+`scripts/db-clean-harness-users.sh --apply`. The prefix is a net, not the
+mechanism — the harness is expected to reclaim itself.
+
+**Verification performed at Layer 8 sub-item 2.** Both paths were exercised, not
+assumed: the happy path reclaims (fixture verified absent from
+`GET /admin/doctors`), and an injected mid-run throw confirmed the exit hook
+still deletes the fixture (probe crashed with exit 1, delete ran, row gone).
+Post-run `db-clean-harness-users.sh --apply` matched **0** accounts and left the
+baseline at User 11 / DoctorProfile 6, confirming zero residue.
+
+**What it would still take.** Fold this harness into the item 1 work at Layer 10
+so the eight pre-existing leakers adopt the same reclaim-on-exit pattern, and
+decide whether audit rows pointing at deleted profiles should be filtered out of
+the Audit Log view.
+
+## 4. Notification timestamps render in UTC
 
 `Notification` is a frozen leaf table with only a `string message`, so the server
 has no user locale and messages embed UTC times (e.g. "8 Jun 2028, 06:03 UTC").
 Notifications are append-only, so pre-fix rows keep their ISO strings forever.
 A fix is forward-only; no scope was agreed for it.
 
-## 4. No screen has ever been visually inspected
+## 5. No screen has ever been visually inspected
 
 Verification is DOM/behavioural only. Layout, spacing, colour, and overflow are
-unverified — PNGs cannot be read back for review.
+unverified — PNGs cannot be read back for review. **Re-raised at Layer 8
+sub-item 2 (Flag 7) and confirmed by the stakeholder as deferred to the Layer 8
+close-out visual pass.** This gap is now three layers deep (Layers 6, 7, 8), and
+the doctor-review screen adds a composition — status chips plus inline per-row
+actions plus a modal edit form — that DOM assertions cannot validate at all.

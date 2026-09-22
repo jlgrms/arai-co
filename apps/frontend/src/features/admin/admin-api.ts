@@ -14,6 +14,12 @@
 
 import { api } from '@/lib/api-client';
 import { buildUsersQuery, type AdminUser, type UpdateUserStateInput, type UserFilters } from './admin-user-types';
+import {
+  buildDoctorsQuery,
+  type AdminDoctor,
+  type DoctorFilters,
+  type ReviewDoctorInput,
+} from './admin-doctor-types';
 
 /**
  * List/search patient and doctor accounts.
@@ -38,4 +44,39 @@ export function updateUserState(
   input: UpdateUserStateInput,
 ): Promise<AdminUser> {
   return api.patch<AdminUser>(`/admin/users/${userId}/state`, input);
+}
+
+/**
+ * List/search doctor profiles for review (Layer 8 sub-item 2).
+ *
+ * `q` is matched SERVER-SIDE against name and specialization (case-insensitive
+ * ILIKE), so the screen sends the query rather than filtering the loaded array.
+ *
+ * Unlike GET /admin/users this does NOT exclude any account: it lists every
+ * DoctorProfile regardless of the owning account's state. That is deliberate on
+ * the server side — a suspended doctor's profile still needs reviewing — so the
+ * screen surfaces the account state alongside rather than hiding the row.
+ */
+export function fetchDoctors(filters: DoctorFilters, signal?: AbortSignal): Promise<AdminDoctor[]> {
+  return api.get<AdminDoctor[]>(`/admin/doctors${buildDoctorsQuery(filters)}`, { signal });
+}
+
+/**
+ * Approve / reject / update a doctor profile in one endpoint (S5.4).
+ *
+ * `doctorProfileId` is the DoctorProfile id — NOT the user id. They are
+ * different UUIDs and the handler 404s on the wrong one.
+ *
+ * The body is a partial update: buildReviewPatch omits unchanged fields, and
+ * the caller must never send an empty object (the server answers 400 "No review
+ * fields provided"). Validation mirrors the doctor's own PATCH /doctors/me, so
+ * there is no admin bypass — a blank name/specialization is a 400 here too.
+ *
+ * Every success writes an AuditLog row with the optional reason.
+ */
+export function reviewDoctor(
+  doctorProfileId: string,
+  input: ReviewDoctorInput,
+): Promise<AdminDoctor> {
+  return api.patch<AdminDoctor>(`/admin/doctors/${doctorProfileId}/review`, input);
 }

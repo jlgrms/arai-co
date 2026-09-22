@@ -27,6 +27,7 @@ import { MyAppointmentsScreen } from '@/features/patient/my-appointments-screen'
 import { ConsultationWorkspaceScreen } from '@/features/patient/consultation-workspace-screen';
 import { MedicalRecordsScreen } from '@/features/patient/medical-records-screen';
 import { AdminUsersScreen } from '@/features/admin/admin-users-screen';
+import { AdminDoctorsScreen } from '@/features/admin/admin-doctors-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -175,12 +176,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/admin/doctors',
-            element: (
-              <PlaceholderPage
-                title="Doctor Review"
-                description="Approve, reject, or update doctor profiles."
-              />
-            ),
+            element: <AdminDoctorsScreen />,
           },
           {
             path: '/admin/appointments',

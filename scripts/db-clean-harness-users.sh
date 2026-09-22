@@ -59,10 +59,12 @@ APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
 
 # Prefixes owned by harnesses (see scripts/evidence-*.mjs). `l7s4` covers
-# l7s4-, l7s4ui-, l7s4drive-, l7s4msg-; `l8s1` covers l8s1-ui-. Add the Layer 8+
-# prefixes here as those harnesses are written, or their fixtures are
-# unreclaimable and the admin console degrades again.
-PREFIXES=('bell.%' 'l7s4%' 'uibook-%' 'uidisc-%' 'uimatch-%' 'notif-%' 'l8s1%')
+# l7s4-, l7s4ui-, l7s4drive-, l7s4msg-; `l8s1` covers l8s1-ui-; `l8s2` covers
+# l8s2- (the doctor-review harness, which reclaims its own fixture and only
+# needs this as a safety net if that reclaim fails). Add the Layer 8+ prefixes
+# here as those harnesses are written, or their fixtures are unreclaimable and
+# the admin console degrades again.
+PREFIXES=('bell.%' 'l7s4%' 'uibook-%' 'uidisc-%' 'uimatch-%' 'notif-%' 'l8s1%' 'l8s2%')
 
 WHERE="u.email LIKE '${PREFIXES[0]}'"
 for p in "${PREFIXES[@]:1}"; do WHERE="$WHERE OR u.email LIKE '$p'"; done
