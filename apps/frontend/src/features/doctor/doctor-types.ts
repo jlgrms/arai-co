@@ -53,6 +53,34 @@ export interface ScheduleSlot extends AvailabilitySlot {
   unavailable: boolean;
 }
 
+/**
+ * Whether a slot's times/flags may be edited or the slot deleted.
+ *
+ * The backend SEALS a slot consumed by a live (non-cancelled) appointment:
+ * updateAvailability and deleteAvailability both run assertSlotNotConsumed and
+ * throw 409. Editing such a slot would invalidate an already-booked appointment
+ * out from under the patient, which S5.3 says the app must prevent.
+ *
+ * This is NOT the same as `unavailable`. A doctor-blocked slot is unavailable
+ * (nobody can book it) but still fully editable — the doctor owns that decision
+ * and may unblock it. A booked slot is unavailable AND sealed. The UI must
+ * separate the two or it would offer an action the server always rejects.
+ */
+export function isSlotSealed(slot: ScheduleSlot): boolean {
+  // Sealed iff a live appointment holds it. `isBlocked` is irrelevant here.
+  return slot.bookedBy !== null;
+}
+
+/**
+ * Why a slot cannot be edited/deleted, in the doctor's terms — or null when it
+ * can. Used to disable the controls and explain the reason, rather than letting
+ * the doctor discover the 409.
+ */
+export function slotSealedReason(slot: ScheduleSlot): string | null {
+  if (!slot.bookedBy) return null;
+  return `Booked by ${slot.bookedBy.patientName} — cancel or reschedule that appointment first.`;
+}
+
 /** A patient record row as returned by the doctor-scoped records endpoint. */
 export interface DoctorPatientRecord {
   sessionId: string;

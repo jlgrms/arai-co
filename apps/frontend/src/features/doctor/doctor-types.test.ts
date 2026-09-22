@@ -5,6 +5,8 @@ import {
   formatTimeRange,
   isKnownSpecialization,
   isPastSlot,
+  isSlotSealed,
+  slotSealedReason,
   slotStateLabel,
   SPECIALIZATIONS,
   summarizeSchedule,
@@ -245,5 +247,47 @@ describe('slotStateLabel', () => {
     const base = { id: '1', startTime: '', endTime: '', unavailable: false, bookedBy: null };
     expect(slotStateLabel({ ...base, isBlocked: true })).toBe('Blocked');
     expect(slotStateLabel({ ...base, isBlocked: false })).toBe('Open');
+  });
+});
+
+// The sealed/unavailable distinction is the subtle one: the backend returns 409
+// for edits to a booked slot but permits edits to a merely-blocked one. Getting
+// this wrong would offer the doctor an action the server always rejects.
+describe('isSlotSealed / slotSealedReason', () => {
+  const base = {
+    id: '1',
+    startTime: '',
+    endTime: '',
+    isBlocked: false,
+    unavailable: false,
+    bookedBy: null,
+  };
+
+  it('seals a slot held by a live appointment', () => {
+    const slot = {
+      ...base,
+      unavailable: true,
+      bookedBy: { id: 'a1', patientName: 'Jordan Lee', status: 'BOOKED' },
+    };
+    expect(isSlotSealed(slot)).toBe(true);
+    expect(slotSealedReason(slot)).toContain('Jordan Lee');
+  });
+
+  it('does NOT seal a blocked slot — the doctor may still edit or unblock it', () => {
+    const slot = { ...base, isBlocked: true, unavailable: true };
+    expect(isSlotSealed(slot)).toBe(false);
+    expect(slotSealedReason(slot)).toBeNull();
+  });
+
+  it('does not seal an open slot', () => {
+    const slot = { ...base, isBlocked: false, unavailable: false };
+    expect(isSlotSealed(slot)).toBe(false);
+    expect(slotSealedReason(slot)).toBeNull();
+  });
+
+  it('stays unsealed when a blocked slot happens to be unbooked', () => {
+    // Blocked and booked are independent flags; only booking seals.
+    const slot = { ...base, isBlocked: true, unavailable: true, bookedBy: null };
+    expect(isSlotSealed(slot)).toBe(false);
   });
 });

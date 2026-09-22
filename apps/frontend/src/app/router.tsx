@@ -15,6 +15,7 @@ import {
 } from '@/features/public/public-screens';
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { DoctorProfileScreen } from '@/features/doctor/doctor-profile-screen';
+import { DoctorScheduleScreen } from '@/features/doctor/doctor-schedule-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
@@ -112,12 +113,7 @@ export const router = createBrowserRouter([
           { path: '/doctor', element: <Navigate to="/doctor/schedule" replace /> },
           {
             path: '/doctor/schedule',
-            element: (
-              <PlaceholderPage
-                title="Schedule"
-                description="Manage availability and block unavailable slots."
-              />
-            ),
+            element: <DoctorScheduleScreen />,
           },
           {
             path: '/doctor/patients',
