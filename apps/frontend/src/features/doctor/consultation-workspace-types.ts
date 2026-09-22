@@ -25,9 +25,32 @@
  * (409) is worse than not offering it.
  */
 
-import type { ConsultationState } from '@/features/patient/consultation-types';
+import type { ConsultationSession, ConsultationState } from '@/features/patient/consultation-types';
 
 export type { ConsultationState };
+
+/**
+ * Whether the doctor should be OFFERED a join action.
+ *
+ * The doctor's room previously decided this from presence and state alone
+ * (`!doctorPresent && state !== 'COMPLETED'`), which misses the appointment: a
+ * CANCELLED appointment keeps its session at SCHEDULED, so the screen offered
+ * Join and the server accepted it — putting the doctor into a live consultation
+ * for an appointment that no longer exists. The server now refuses with 409;
+ * this keeps the button off the screen so the refusal is never reached.
+ *
+ * Mirrors `canOfferJoin` on the patient side. The asymmetry with
+ * `canComplete`/`canDoctorWrite` is intentional: cancellation withdraws the
+ * ability to START, but a consultation cancelled after it was completed must
+ * still be readable.
+ */
+export function canDoctorOfferJoin(
+  session: Pick<ConsultationSession, 'state' | 'doctorJoinedAt' | 'appointment'>,
+): boolean {
+  if (session.appointment?.status === 'CANCELLED') return false;
+  if (session.doctorJoinedAt !== null) return false;
+  return session.state !== 'COMPLETED';
+}
 
 /**
  * Doctor WRITE gate: { IN_PROGRESS, COMPLETED }.

@@ -49,6 +49,18 @@ export class ConsultationsService {
     const { session, presence } = await this.loadParticipantSession(userId, role, sessionId);
     const participant = role as ParticipantRole;
 
+    // A cancelled appointment must not be joinable. The consultation state
+    // machine is deliberately appointment-agnostic (pure, no Prisma), so it
+    // cannot know this, and the session stays SCHEDULED after a cancellation --
+    // which means applyJoin would happily move it to JOINED. Without this guard
+    // a patient could still open a live consultation for an appointment they had
+    // cancelled. Applies to `join` only, not to loadParticipantSession: viewing
+    // a session, completing one (already refused from SCHEDULED), or reading
+    // records must keep working regardless of appointment status.
+    if (session.appointment.status === 'CANCELLED') {
+      throw new ConflictException('This appointment was cancelled and can no longer be joined');
+    }
+
     let result;
     try {
       result = applyJoin(session.state as ConsultationState, presence, participant);

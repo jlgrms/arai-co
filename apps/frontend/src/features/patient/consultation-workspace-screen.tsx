@@ -13,7 +13,7 @@ import { api, ApiError } from '@/lib/api-client';
 import { parseBookingError, type ParsedBookingError } from './booking-api-errors';
 import { formatAppointmentWhen } from './booking-types';
 import {
-  canJoin,
+  canOfferJoin,
   canPatientReadRecords,
   hasNoRecords,
   isWaitingForDoctor,
@@ -181,7 +181,11 @@ export function ConsultationWorkspaceScreen() {
   const { doctorPresent } = presenceOf(session);
   const waiting = isWaitingForDoctor(session);
   const finished = session.state === 'COMPLETED';
-  const joinable = canJoin(session.state);
+  // Not just `canJoin(state)`: cancelling an appointment leaves its session
+  // SCHEDULED, so a state-only check still offered Join for a cancelled
+  // appointment (and the server then accepted it). `canOfferJoin` also consults
+  // the appointment status — see consultation-types for the full reasoning.
+  const joinable = canOfferJoin(session);
 
   return (
     <div className="space-y-6">

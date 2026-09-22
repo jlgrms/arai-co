@@ -96,6 +96,24 @@ export function canJoin(state: ConsultationState): boolean {
 }
 
 /**
+ * Whether the patient should be OFFERED a join action at all.
+ *
+ * `canJoin(state)` is not sufficient, and that is a real defect this function
+ * exists to prevent: cancelling an appointment does not touch its session, which
+ * stays SCHEDULED and therefore passes `canJoin`. The room rendered a join
+ * button, and the server accepted it — a live consultation for a cancelled
+ * appointment. Both ends now agree: the server refuses with 409, and this keeps
+ * the affordance off the screen so the refusal is never reached.
+ *
+ * A CANCELLED appointment does not make the session terminal, so records stay
+ * readable — only joining is withdrawn.
+ */
+export function canOfferJoin(session: ConsultationSession): boolean {
+  if (session.appointment?.status === 'CANCELLED') return false;
+  return canJoin(session.state);
+}
+
+/**
  * The patient may read records ONLY when COMPLETED. Mirrors the backend's
  * READ_PATIENT gate — keep the two in step if that gate ever changes.
  */

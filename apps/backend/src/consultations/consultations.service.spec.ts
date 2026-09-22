@@ -117,6 +117,116 @@ describe('ConsultationsService join response shape (sub-item 5)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cancelled appointments must not be joinable.
+//
+// Found while sweeping the Layer 6/7 harnesses: POST /consultations/:id/join
+// returned 201 for an appointment the patient had cancelled, moving a SCHEDULED
+// session to JOINED. Two independent causes, both fixed here:
+//   - the state machine is appointment-agnostic by design (pure, no Prisma), so
+//     nothing in applyJoin can know the appointment was cancelled;
+//   - a cancellation does not touch the session, which therefore stays SCHEDULED
+//     and looks perfectly joinable.
+//
+// The guard lives in `join` alone. `loadParticipantSession` is shared by view /
+// complete / records / notes, and gating there would break reading the records
+// of a cancelled consultation -- the one thing a cancelled appointment SHOULD
+// still allow.
+// ---------------------------------------------------------------------------
+describe('ConsultationsService join refuses a cancelled appointment', () => {
+  const baseSession = {
+    id: 'sess-1',
+    appointmentId: 'appt-1',
+    state: 'SCHEDULED',
+    joinedAt: null,
+    patientJoinedAt: null,
+    doctorJoinedAt: null,
+    completedAt: null,
+    appointment: {
+      id: 'appt-1',
+      patientProfileId: 'pat-1',
+      doctorProfileId: 'doc-1',
+      availabilityId: 'slot-1',
+      status: 'BOOKED',
+      scheduledAt: new Date('2026-09-24T14:00:00.000Z'),
+    },
+  };
+
+  const makePrisma = (sessionOver: any = {}, appointmentOver: any = {}) => ({
+    patientProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'pat-1' }) },
+    doctorProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'doc-1' }) },
+    consultationSession: {
+      findUnique: jest.fn().mockResolvedValue({
+        ...baseSession,
+        ...sessionOver,
+        appointment: { ...baseSession.appointment, ...appointmentOver },
+      }),
+      update: jest.fn().mockImplementation(({ data }) => ({ ...baseSession, ...data })),
+    },
+  });
+
+  it('the reported defect: a cancelled appointment is no longer joinable', async () => {
+    // Exactly the state the live probe hit: appointment CANCELLED, session
+    // still SCHEDULED. This used to return 201 and move the session to JOINED.
+    const prisma: any = makePrisma({}, { status: 'CANCELLED' });
+    await expect(
+      new ConsultationsService(prisma).join('user-pat', 'PATIENT', 'sess-1'),
+    ).rejects.toThrow(/cancelled/i);
+    expect(prisma.consultationSession.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects the doctor on a cancelled appointment too, not just the patient', async () => {
+    // Cancellation is bilateral: the doctor must not be able to open a live
+    // consultation for an appointment that no longer exists either.
+    const prisma: any = makePrisma({}, { status: 'CANCELLED' });
+    await expect(
+      new ConsultationsService(prisma).join('user-doc', 'DOCTOR', 'sess-1'),
+    ).rejects.toThrow(/cancelled/i);
+    expect(prisma.consultationSession.update).not.toHaveBeenCalled();
+  });
+
+  it('uses a 409 (state conflict), matching the other join refusals', async () => {
+    const prisma: any = makePrisma({}, { status: 'CANCELLED' });
+    await expect(
+      new ConsultationsService(prisma).join('user-pat', 'PATIENT', 'sess-1'),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('a BOOKED appointment still joins normally', async () => {
+    // The guard must be a cancellation check, not a blanket refusal.
+    const prisma: any = makePrisma();
+    const result = await new ConsultationsService(prisma).join('user-pat', 'PATIENT', 'sess-1');
+    expect(result.state).toBe('JOINED');
+  });
+
+  it('a RESCHEDULED appointment still joins normally', async () => {
+    // Rescheduling replaces the slot and re-uses the session; it is a live
+    // appointment and must keep working.
+    const prisma: any = makePrisma({}, { status: 'RESCHEDULED' });
+    const result = await new ConsultationsService(prisma).join('user-pat', 'PATIENT', 'sess-1');
+    expect(result.state).toBe('JOINED');
+  });
+
+  it('records for a cancelled appointment stay readable', async () => {
+    // The reason the guard is NOT in loadParticipantSession: a patient whose
+    // appointment was cancelled after the consultation still has a right to
+    // that consultation's records.
+    const prisma: any = makePrisma(
+      { state: 'COMPLETED', completedAt: new Date('2026-09-01T10:30:00.000Z') },
+      { status: 'CANCELLED' },
+    );
+    prisma.consultationNote = { findMany: jest.fn().mockResolvedValue([]) };
+    prisma.prescription = { findMany: jest.fn().mockResolvedValue([]) };
+
+    const records = await new ConsultationsService(prisma).getSessionRecords(
+      'user-pat',
+      'PATIENT',
+      'sess-1',
+    );
+    expect(records.sessionId).toBe('sess-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Layer 7 sub-item 3 — the doctor's records view must carry the SAME identity
 // fields the patient's does.
 //

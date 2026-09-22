@@ -25,6 +25,7 @@ import {
 import {
   CLINICAL_TEXT_MAX_LENGTH,
   canComplete,
+  canDoctorOfferJoin,
   canDoctorWrite,
   completionBlockedReason,
   doctorStateHint,
@@ -266,7 +267,7 @@ export function DoctorConsultationWorkspaceScreen() {
           <Separator />
 
           <div className="flex flex-wrap items-center gap-3">
-            {!doctorPresent && session.state !== 'COMPLETED' && (
+            {canDoctorOfferJoin(session) && (
               <Button
                 type="button"
                 variant="cta"

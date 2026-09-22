@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CLINICAL_TEXT_MAX_LENGTH,
   canComplete,
+  canDoctorOfferJoin,
   canDoctorReadRecords,
   canDoctorWrite,
   completionBlockedReason,
@@ -22,6 +23,75 @@ import {
 } from './consultation-workspace-types';
 
 const ALL_STATES: ConsultationState[] = ['SCHEDULED', 'JOINED', 'IN_PROGRESS', 'COMPLETED'];
+
+/** Minimal session fixture for the join-affordance rule. */
+function sessionView(
+  over: {
+    state?: ConsultationState;
+    doctorJoinedAt?: string | null;
+    status?: 'BOOKED' | 'RESCHEDULED' | 'CANCELLED' | 'COMPLETED';
+  } = {},
+) {
+  return {
+    state: over.state ?? ('SCHEDULED' as ConsultationState),
+    doctorJoinedAt: over.doctorJoinedAt ?? null,
+    appointment: {
+      id: 'appt-1',
+      patientProfileId: 'pat-1',
+      doctorProfileId: 'doc-1',
+      availabilityId: 'slot-1' as string | null,
+      status: over.status ?? ('BOOKED' as const),
+      scheduledAt: '2026-09-24T14:00:00.000Z',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The doctor must not be offered Join on a CANCELLED appointment.
+//
+// Same defect as the patient room, and reachable from the doctor's side too:
+// the screen decided joinability from `!doctorPresent && state !== 'COMPLETED'`,
+// and a cancellation leaves the session at SCHEDULED with nobody present — so it
+// offered Join, and the server accepted it. The refusal is now bilateral.
+// ---------------------------------------------------------------------------
+describe('canDoctorOfferJoin', () => {
+  it('offers Join for a live BOOKED appointment the doctor has not entered', () => {
+    expect(canDoctorOfferJoin(sessionView())).toBe(true);
+  });
+
+  it('withholds Join when the appointment was CANCELLED', () => {
+    expect(canDoctorOfferJoin(sessionView({ status: 'CANCELLED' }))).toBe(false);
+  });
+
+  it('withholds Join for a cancelled appointment in any session state', () => {
+    for (const state of ALL_STATES) {
+      expect(canDoctorOfferJoin(sessionView({ state, status: 'CANCELLED' }))).toBe(false);
+    }
+  });
+
+  it('withholds Join once the doctor is already in the room', () => {
+    // Re-join is idempotent server-side, but there is nothing to offer.
+    expect(canDoctorOfferJoin(sessionView({ doctorJoinedAt: '2026-09-24T14:00:00.000Z' }))).toBe(
+      false,
+    );
+  });
+
+  it('withholds Join on a COMPLETED session', () => {
+    expect(canDoctorOfferJoin(sessionView({ state: 'COMPLETED' }))).toBe(false);
+  });
+
+  it('still offers Join for RESCHEDULED, which is a live appointment', () => {
+    expect(canDoctorOfferJoin(sessionView({ status: 'RESCHEDULED' }))).toBe(true);
+  });
+
+  it('leaves records readable after a cancellation', () => {
+    // Cancelling withdraws joining, not the doctor's READ_DOCTOR access to a
+    // consultation that already happened.
+    const s = sessionView({ state: 'COMPLETED', status: 'CANCELLED' });
+    expect(canDoctorOfferJoin(s)).toBe(false);
+    expect(canDoctorReadRecords(s.state)).toBe(true);
+  });
+});
 
 describe('doctor write gate (WRITE = IN_PROGRESS, COMPLETED)', () => {
   it('mirrors the backend records-visibility WRITE set exactly', () => {

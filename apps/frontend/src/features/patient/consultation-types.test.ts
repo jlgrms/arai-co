@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canJoin,
+  canOfferJoin,
   canPatientReadRecords,
   hasNoRecords,
   isTerminal,
@@ -88,6 +89,72 @@ describe('consultation helpers (sub-item 5)', () => {
     it('refuses a completed session (server would 409 TERMINAL)', () => {
       expect(canJoin('COMPLETED')).toBe(false);
       expect(isTerminal('COMPLETED')).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The join affordance must account for the APPOINTMENT, not only the session.
+  //
+  // Cancelling an appointment does not touch its consultation session, which
+  // therefore stays SCHEDULED — and `canJoin('SCHEDULED')` is true. The room
+  // offered Join for a cancelled appointment and the server accepted it,
+  // creating a live consultation for an appointment that no longer existed.
+  // `canOfferJoin` is the single place that decision is made.
+  // -------------------------------------------------------------------------
+  describe('canOfferJoin', () => {
+    it('offers Join for a live BOOKED appointment', () => {
+      expect(canOfferJoin(session({ state: 'SCHEDULED' }))).toBe(true);
+    });
+
+    it('withholds Join when the appointment was CANCELLED', () => {
+      // The reported defect, at its narrowest: SCHEDULED session (canJoin true)
+      // on a cancelled appointment.
+      const s = session({
+        state: 'SCHEDULED',
+        appointment: { ...session().appointment!, status: 'CANCELLED' },
+      });
+      expect(canJoin(s.state)).toBe(true); // the state alone still says yes
+      expect(canOfferJoin(s)).toBe(false); // the appointment overrides it
+    });
+
+    it('withholds Join for a cancelled appointment in any session state', () => {
+      for (const state of ['SCHEDULED', 'JOINED', 'IN_PROGRESS'] as const) {
+        const s = session({
+          state,
+          appointment: { ...session().appointment!, status: 'CANCELLED' },
+        });
+        expect(canOfferJoin(s)).toBe(false);
+      }
+    });
+
+    it('still refuses a COMPLETED session', () => {
+      // The pre-existing rule must survive the new one.
+      expect(canOfferJoin(session({ state: 'COMPLETED' }))).toBe(false);
+    });
+
+    it('offers Join for RESCHEDULED, which is a live appointment', () => {
+      const s = session({
+        state: 'SCHEDULED',
+        appointment: { ...session().appointment!, status: 'RESCHEDULED' },
+      });
+      expect(canOfferJoin(s)).toBe(true);
+    });
+
+    it('does not withdraw records when only the appointment was cancelled', () => {
+      // Cancelling withdraws joining, NOT the right to read a completed
+      // consultation's notes. These two must not be coupled.
+      const s = session({
+        state: 'COMPLETED',
+        appointment: { ...session().appointment!, status: 'CANCELLED' },
+      });
+      expect(canOfferJoin(s)).toBe(false);
+      expect(canPatientReadRecords(s.state)).toBe(true);
+    });
+
+    it('degrades to the state-only rule when the appointment is absent', () => {
+      // `appointment` is optional to keep a shape omission from crashing the
+      // screen; a missing appointment must not withhold Join.
+      expect(canOfferJoin(session({ appointment: undefined }))).toBe(true);
     });
   });
 
