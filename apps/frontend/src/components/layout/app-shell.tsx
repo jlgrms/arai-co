@@ -50,10 +50,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Persistent desktop rail (lg+) */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface lg:flex">
-        <div className="flex h-14 items-center border-b border-border px-4">
-          <BrandLogo size="sm" />
+      {/* Persistent desktop rail (lg+) — dark navy per approved mockup. */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-ink-foreground/[0.14] bg-ink lg:flex">
+        <div className="flex h-14 items-center border-b border-ink-foreground/[0.14] px-4">
+          {/* Outline variant: thin-outline face reads better than the solid black
+              mark against the dark navy sidebar (per brand ref v2). */}
+          <BrandLogo variant="outline" size="sm" />
+          <span className="ml-2.5 font-heading text-sm font-extrabold tracking-tight text-ink-foreground">
+            <span className="text-accent">ARAI</span>.CO
+          </span>
         </div>
         <SidebarNav items={items} />
       </aside>
@@ -72,13 +77,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="absolute inset-0 bg-ink/40"
             onClick={() => setDrawerOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 flex w-64 max-w-[80%] flex-col bg-surface shadow-lg">
-            <div className="flex h-14 items-center justify-between border-b border-border px-4">
-              <BrandLogo size="sm" />
+          <div className="absolute inset-y-0 left-0 flex w-64 max-w-[80%] flex-col bg-ink shadow-lg">
+            <div className="flex h-14 items-center justify-between border-b border-ink-foreground/[0.14] px-4">
+              <span className="flex items-center">
+                <BrandLogo variant="outline" size="sm" />
+                <span className="ml-2.5 font-heading text-sm font-extrabold tracking-tight text-ink-foreground">
+                  <span className="text-accent">ARAI</span>.CO
+                </span>
+              </span>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label="Close navigation"
+                className="text-ink-foreground hover:bg-ink-foreground/10 hover:text-ink-foreground"
                 onClick={() => setDrawerOpen(false)}
               >
                 <X />

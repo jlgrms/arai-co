@@ -12,6 +12,12 @@ interface SidebarNavProps {
 /**
  * Primary nav list. Rendered both in the persistent desktop rail and inside
  * the mobile overlay drawer — same items, same active styling, one component.
+ *
+ * CONTRAST (dark navy sidebar, per approved dashboard mockup):
+ *  - active   = light "cutout" pill: #F2F2F2 bg, #14213D text (ink-foreground / ink)
+ *  - inactive = translucent light text: rgba(242,242,242,0.75), transparent bg
+ * The sidebar is always bg-ink, so these tokens are fixed rather than
+ * theme-dependent. Hover uses a faint light wash that stays AA-legible.
  */
 export function SidebarNav({ items, onNavigate }: SidebarNavProps) {
   return (
@@ -26,13 +32,15 @@ export function SidebarNav({ items, onNavigate }: SidebarNavProps) {
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                isActive ? 'bg-ink text-ink-foreground' : 'text-ink hover:bg-muted',
+                'flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-semibold transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-foreground/70',
+                isActive
+                  ? 'bg-ink-foreground text-ink'
+                  : 'text-ink-foreground/75 hover:bg-ink-foreground/10 hover:text-ink-foreground',
               )
             }
           >
-            <Icon className="size-4 shrink-0" aria-hidden />
+            <Icon className="size-[18px] shrink-0" aria-hidden />
             <span className="truncate">{item.label}</span>
           </NavLink>
         );
