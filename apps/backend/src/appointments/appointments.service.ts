@@ -14,6 +14,7 @@ import {
   ConflictReason,
   ExistingBooking,
 } from '../common/domain/booking-conflict';
+import { NotificationType } from '../notifications/notification-types';
 
 // Human-readable conflict messages, surfaced as 409 (S5.5).
 const CONFLICT_MESSAGE: Record<ConflictReason, string> = {
@@ -41,7 +42,7 @@ export class AppointmentsService {
     // Session is created at BOOKING time (Flag A), atomically with the
     // appointment, starting in SCHEDULED. A join call later operates on an
     // existing, addressable session id (matches the C4 dynamic view).
-    return this.prisma.appointment.create({
+    const appointment = await this.prisma.appointment.create({
       data: {
         patientProfileId: patient.id,
         doctorProfileId: slot.doctorProfileId,
@@ -52,6 +53,18 @@ export class AppointmentsService {
       },
       include: { consultationSession: true },
     });
+
+    // Sub-item 8: notify BOTH affected parties (S5.2/S5.3). Synchronous writes
+    // through the already-injected PrismaService — no queue/async (Flag 2).
+    const when = slot.startTime.toISOString();
+    await this.notifyBothParties(
+      slot.doctorProfileId,
+      patientUserId,
+      NotificationType.BOOKING_CONFIRMED,
+      (name) => `Appointment booked with ${name} on ${when}`,
+    );
+
+    return appointment;
   }
 
   // ---- Reschedule (PATIENT, own appointment) -----------------------------------
@@ -80,7 +93,7 @@ export class AppointmentsService {
     await this.assertNoConflict(appt.doctorProfileId, newSlot, appt.id);
 
     // Update-in-place: new availabilityId frees the old slot automatically (S5.3).
-    return this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id: appt.id },
       data: {
         availabilityId: newSlot.id,
@@ -88,6 +101,17 @@ export class AppointmentsService {
         status: AppointmentStatus.RESCHEDULED,
       },
     });
+
+    // Sub-item 8: notify both parties of the new time.
+    const when = newSlot.startTime.toISOString();
+    await this.notifyBothParties(
+      appt.doctorProfileId,
+      patientUserId,
+      NotificationType.APPOINTMENT_RESCHEDULED,
+      (name) => `Appointment with ${name} rescheduled to ${when}`,
+    );
+
+    return updated;
   }
 
   // ---- Cancel (PATIENT-only, own appointment — S5.7) ---------------------------
@@ -108,10 +132,22 @@ export class AppointmentsService {
     // Appointment.availabilityId would still hold the old FK and block re-booking
     // (Prisma P2002). Nulling it frees the slot. scheduledAt + doctorProfileId are
     // preserved so audit history keeps the original slot time (C4: ||--o| optional).
-    return this.prisma.appointment.update({
+    const updated = await this.prisma.appointment.update({
       where: { id: appt.id },
       data: { status: AppointmentStatus.CANCELLED, availabilityId: null },
     });
+
+    // Sub-item 8: notify both parties of the cancellation. scheduledAt survives
+    // the cancel on the row, so it still carries the original appt time.
+    const when = appt.scheduledAt.toISOString();
+    await this.notifyBothParties(
+      appt.doctorProfileId,
+      patientUserId,
+      NotificationType.APPOINTMENT_CANCELLED,
+      (name) => `Appointment with ${name} on ${when} was cancelled`,
+    );
+
+    return updated;
   }
 
   // ---- Reads (participant-scoped) ----------------------------------------------
@@ -142,6 +178,42 @@ export class AppointmentsService {
   }
 
   // ---- Helpers ------------------------------------------------------------------
+
+  /**
+   * Sub-item 8 — create one Notification row per affected party (patient + the
+   * treating doctor) for a booking/reschedule/cancel event. The recipient is a
+   * User id (Notification.userId -> User), so the doctor's User id is resolved
+   * from the DoctorProfile. Two plain prisma writes, fully in-process (Flag 2).
+   * Messages are built per-recipient so each names the counterparty.
+   */
+  private async notifyBothParties(
+    doctorProfileId: string,
+    patientUserId: string,
+    type: string,
+    buildMessage: (counterpartyName: string) => string,
+  ): Promise<void> {
+    const doctorProfile = await this.prisma.doctorProfile.findUnique({
+      where: { id: doctorProfileId },
+      select: { userId: true, name: true },
+    });
+    // Defensive: without a resolvable doctor there is no second recipient.
+    if (!doctorProfile) return;
+
+    const patientProfile = await this.prisma.patientProfile.findUnique({
+      where: { userId: patientUserId },
+      select: { name: true },
+    });
+    const patientName = patientProfile?.name ?? 'your patient';
+
+    await this.prisma.notification.createMany({
+      data: [
+        // Doctor's notification names the patient.
+        { userId: doctorProfile.userId, type, message: buildMessage(patientName) },
+        // Patient's notification names the doctor.
+        { userId: patientUserId, type, message: buildMessage(doctorProfile.name) },
+      ],
+    });
+  }
 
   /**
    * Runs the shared pure conflict check against the doctor's OTHER active bookings.

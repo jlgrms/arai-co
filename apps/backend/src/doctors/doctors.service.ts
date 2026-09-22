@@ -1,9 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApprovalStatus } from '@prisma/client';
+import { AppointmentStatus, ApprovalStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
@@ -161,6 +162,13 @@ export class DoctorsService {
     });
     if (!slot) throw new NotFoundException('Availability slot not found');
 
+    // Flag 1 (sub-item 8 resolution): a slot consumed by a live appointment is
+    // sealed. Editing its times or blocking it would invalidate an already-booked
+    // appointment out from under the patient — exactly the "invalid booking"
+    // S5.3 says the app must prevent. The doctor must cancel/reschedule the
+    // appointment first (which fires the existing notification triggers).
+    await this.assertSlotNotConsumed(slot.id);
+
     const start = dto.startTime ? new Date(dto.startTime) : slot.startTime;
     const end = dto.endTime ? new Date(dto.endTime) : slot.endTime;
     if (end.getTime() <= start.getTime()) {
@@ -180,8 +188,30 @@ export class DoctorsService {
       where: { id, doctorProfileId: profile.id },
     });
     if (!slot) throw new NotFoundException('Availability slot not found');
+    // Flag 1: deleting a consumed slot would orphan a live appointment.
+    await this.assertSlotNotConsumed(slot.id);
     await this.prisma.availability.delete({ where: { id: slot.id } });
     return { deleted: true, id: slot.id };
+  }
+
+  /**
+   * Flag 1 guard — a slot referenced by any non-CANCELLED appointment is
+   * "consumed" and may not be edited, blocked, or deleted. Throws 409 so the
+   * doctor resolves via the existing cancel/reschedule flows.
+   */
+  private async assertSlotNotConsumed(availabilityId: string): Promise<void> {
+    const liveConsumer = await this.prisma.appointment.findFirst({
+      where: {
+        availabilityId,
+        status: { not: AppointmentStatus.CANCELLED },
+      },
+      select: { id: true },
+    });
+    if (liveConsumer) {
+      throw new ConflictException(
+        'This slot is booked by an appointment; cancel or reschedule it before editing this slot',
+      );
+    }
   }
 
   /** Resolve the caller's own DoctorProfile, or 404 if none. */
