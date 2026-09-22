@@ -100,3 +100,72 @@ describe('DoctorsService availability guard (Flag 1)', () => {
     expect(prisma.appointment.findFirst).not.toHaveBeenCalled();
   });
 });
+
+// Layer 6 sub-item 2: discovery must stay scoped to APPROVED doctors, and the
+// search filter must broaden within that scope without ever escaping it.
+describe('DoctorsService discovery filters', () => {
+  function makePrisma() {
+    return {
+      doctorProfile: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  /** The `where` handed to Prisma on the last findMany call. */
+  function lastWhere(prisma: any) {
+    return prisma.doctorProfile.findMany.mock.calls[0][0].where;
+  }
+
+  it('always restricts to APPROVED, even with no filters', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({});
+    expect(lastWhere(prisma)).toEqual({ approvalStatus: 'APPROVED' });
+  });
+
+  it('search matches name OR biography, case-insensitively', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({ search: 'cardio' });
+    const where = lastWhere(prisma);
+    expect(where.approvalStatus).toBe('APPROVED');
+    expect(where.OR).toEqual([
+      { name: { contains: 'cardio', mode: 'insensitive' } },
+      { biography: { contains: 'cardio', mode: 'insensitive' } },
+    ]);
+  });
+
+  it('search is trimmed; blank/whitespace-only search adds no filter', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({ search: '   ' });
+    const where = lastWhere(prisma);
+    // No OR clause: an empty box must not exclude doctors with a null biography.
+    expect(where.OR).toBeUndefined();
+    expect(where).toEqual({ approvalStatus: 'APPROVED' });
+  });
+
+  it('trims surrounding whitespace before matching', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({ search: '  Chen  ' });
+    expect(lastWhere(prisma).OR[0].name.contains).toBe('Chen');
+  });
+
+  it('search AND specialization AND available compose together', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({
+      search: 'heart',
+      specialization: 'Cardiology',
+      available: true,
+    });
+    const where = lastWhere(prisma);
+    expect(where.approvalStatus).toBe('APPROVED');
+    expect(where.specialization).toEqual({ equals: 'Cardiology', mode: 'insensitive' });
+    expect(where.OR).toHaveLength(2);
+    expect(where.availabilities.some).toEqual(
+      expect.objectContaining({ isBlocked: false, appointment: null }),
+    );
+  });
+
+  it('available=false does not add an availability filter', async () => {
+    const prisma = makePrisma();
+    await new DoctorsService(prisma).discover({ available: false });
+    expect(lastWhere(prisma).availabilities).toBeUndefined();
+  });
+});

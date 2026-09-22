@@ -100,10 +100,12 @@ export class DoctorsController {
   discover(
     @Query('specialization') specialization?: string,
     @Query('available') available?: string,
+    @Query('search') search?: string,
   ) {
     return this.doctorsService.discover({
       specialization,
       available: available === 'true',
+      search,
     });
   }
 

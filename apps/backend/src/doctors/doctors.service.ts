@@ -54,15 +54,27 @@ export class DoctorsService {
   // ---- Sub-item 2: discovery ---------------------------------------------------
 
   /**
-   * Browse APPROVED doctors. Optional filters:
+   * Browse APPROVED doctors. Optional filters, all combinable (AND):
    *  - specialization: exact (case-insensitive) match on DoctorProfile.specialization
    *  - available=true: only doctors with >= 1 free, future, unblocked, unconsumed slot
+   *  - search: case-insensitive substring over name OR biography
+   *
+   * Search is server-side so it covers the whole approved set, not just a page.
+   * Blank/whitespace-only search is treated as "no search filter" so an empty
+   * input box doesn't silently exclude every doctor with a null biography.
    */
-  async discover(opts: { specialization?: string; available?: boolean }) {
+  async discover(opts: { specialization?: string; available?: boolean; search?: string }) {
     const now = new Date();
     const where: Prisma.DoctorProfileWhereInput = { approvalStatus: ApprovalStatus.APPROVED };
     if (opts.specialization) {
       where.specialization = { equals: opts.specialization, mode: 'insensitive' };
+    }
+    const search = opts.search?.trim();
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { biography: { contains: search, mode: 'insensitive' } },
+      ];
     }
     if (opts.available) {
       where.availabilities = {

@@ -14,6 +14,7 @@ import {
   PublicHomePlaceholder,
 } from '@/features/public/public-screens';
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
+import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -59,12 +60,7 @@ export const router = createBrowserRouter([
           { path: '/patient', element: <Navigate to="/patient/discover" replace /> },
           {
             path: '/patient/discover',
-            element: (
-              <PlaceholderPage
-                title="Discover Doctors"
-                description="Browse and search doctors by specialty."
-              />
-            ),
+            element: <DiscoverDoctorsScreen />,
           },
           {
             path: '/patient/book',
