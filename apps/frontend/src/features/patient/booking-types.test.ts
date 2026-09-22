@@ -34,6 +34,9 @@ const appt = (over: Partial<Appointment>): Appointment => ({
     specialization: 'General Medicine',
     approvalStatus: 'APPROVED',
   },
+  // The backend joins the consultation session onto every appointment read so
+  // the row can link into the consultation workspace (sub-item 5).
+  consultationSession: { id: 'sess-1', state: 'SCHEDULED' },
   ...over,
 });
 

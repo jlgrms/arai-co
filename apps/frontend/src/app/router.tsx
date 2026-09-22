@@ -18,6 +18,7 @@ import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-scree
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
 import { MyAppointmentsScreen } from '@/features/patient/my-appointments-screen';
+import { ConsultationWorkspaceScreen } from '@/features/patient/consultation-workspace-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -78,6 +79,13 @@ export const router = createBrowserRouter([
           {
             path: '/patient/appointments',
             element: <MyAppointmentsScreen />,
+          },
+          {
+            // The consultation room for one session. Keyed by SESSION id (not
+            // appointment id) — the two are different UUIDs, which is why the
+            // appointment payload carries the session id alongside it.
+            path: '/patient/consultations/:sessionId',
+            element: <ConsultationWorkspaceScreen />,
           },
           {
             path: '/patient/records',

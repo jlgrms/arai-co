@@ -35,6 +35,10 @@ export type AppointmentStatus = 'BOOKED' | 'RESCHEDULED' | 'CANCELLED' | 'COMPLE
  * An appointment row. `doctorProfile` is joined server-side so the row is
  * self-describing: the UI can always name the doctor, even if that doctor is
  * later un-approved and therefore absent from the discoverable list.
+ *
+ * `consultationSession` is joined too, so a row can link into the consultation
+ * workspace (sub-item 5). The workspace is keyed by SESSION id, which is a
+ * different UUID from the appointment id and cannot be derived from it.
  */
 export interface Appointment {
   id: string;
@@ -49,6 +53,10 @@ export interface Appointment {
     specialization: string;
     approvalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   };
+  consultationSession: {
+    id: string;
+    state: 'SCHEDULED' | 'JOINED' | 'IN_PROGRESS' | 'COMPLETED';
+  } | null;
 }
 
 /** Local calendar day key, e.g. "2026-09-23". Groups slots by the day the

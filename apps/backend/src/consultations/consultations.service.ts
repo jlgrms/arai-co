@@ -28,6 +28,17 @@ const TRANSITION_MESSAGE: Record<string, string> = {
   ALREADY_IN_PROGRESS: 'Session is already in progress',
 };
 
+// Every consultation-session response carries the appointment it belongs to.
+//
+// This matters because `join` has TWO return paths — the write on a real
+// transition and the idempotent early-return that hands back the already-loaded
+// session. Without a shared include the two disagree: the early-return had
+// `appointment` (it comes from loadParticipantSession) while the update did not.
+// A client could then only render the response safely by not trusting it, and a
+// patient workspace crashed on its first join for exactly that reason. One
+// include keeps every branch shaped identically.
+const WITH_APPOINTMENT = { appointment: true } as const;
+
 @Injectable()
 export class ConsultationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -49,7 +60,8 @@ export class ConsultationsService {
     }
 
     if (!result.changed) {
-      // Idempotent: return current session untouched.
+      // Idempotent: return the current session untouched. Already carries the
+      // appointment from loadParticipantSession, matching the write path below.
       return session;
     }
 
@@ -64,6 +76,7 @@ export class ConsultationsService {
           ? { patientJoinedAt: session.patientJoinedAt ?? now }
           : { doctorJoinedAt: session.doctorJoinedAt ?? now }),
       },
+      include: { ...WITH_APPOINTMENT },
     });
   }
 
@@ -82,6 +95,7 @@ export class ConsultationsService {
     return this.prisma.consultationSession.update({
       where: { id: session.id },
       data: { state: result.state as PrismaConsultationState, completedAt: new Date() },
+      include: { ...WITH_APPOINTMENT },
     });
   }
 

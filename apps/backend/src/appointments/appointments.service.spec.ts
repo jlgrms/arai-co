@@ -329,3 +329,115 @@ describe('AppointmentsService doctor projection (sub-item 4)', () => {
     expect(select).not.toHaveProperty('userId');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sub-item 5 — every appointment read carries the consultation session id.
+//
+// The consultation workspace is addressed by SESSION id, which is a distinct
+// UUID from the appointment id and cannot be derived from it. If the read paths
+// omit the session projection, a patient has no way to discover their session
+// and the workspace becomes unreachable except by typing a UUID by hand.
+// ---------------------------------------------------------------------------
+describe('AppointmentsService consultation session projection (sub-item 5)', () => {
+  const EXPECTED_SESSION = {
+    consultationSession: { select: { id: true, state: true } },
+  };
+
+  const baseAppt = {
+    id: 'appt-1',
+    patientProfileId: 'pat-1',
+    doctorProfileId: 'doc-1',
+    availabilityId: 'slot-1',
+    status: 'BOOKED',
+    scheduledAt: slot('slot-1', 9).startTime,
+  };
+
+  const makePrisma = (over: any = {}) => ({
+    patientProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'pat-1', name: 'Pat' }) },
+    doctorProfile: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'doc-1', userId: 'user-doc', name: 'Dr. D' }),
+    },
+    notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    availability: { findUnique: jest.fn().mockResolvedValue(slot('slot-1', 9)) },
+    appointment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(baseAppt),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(baseAppt),
+      create: jest.fn().mockImplementation(({ data }) => ({ id: 'appt-1', ...data })),
+      update: jest.fn().mockImplementation(({ data }) => ({ ...baseAppt, ...data })),
+      ...over,
+    },
+  });
+
+  it('book: returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).book('user-pat', { availabilityId: 'slot-1' });
+    expect(prisma.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('book: does NOT duplicate the session key in the include', async () => {
+    // `book` previously listed `consultationSession: true` alongside the shared
+    // include. Since the shared include now defines the same key, a duplicate
+    // would silently overwrite the projection (TS2783) and shrink the payload.
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).book('user-pat', { availabilityId: 'slot-1' });
+    const include = prisma.appointment.create.mock.calls[0][0].include;
+    expect(include.consultationSession).toEqual({ select: { id: true, state: true } });
+  });
+
+  it('reschedule: returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).reschedule('user-pat', 'appt-1', {
+      availabilityId: 'slot-1',
+    });
+    expect(prisma.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('cancel: returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).cancel('user-pat', 'appt-1');
+    expect(prisma.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('cancel (already cancelled): returns the session projection on the re-read', async () => {
+    const prisma: any = makePrisma({
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ ...baseAppt, status: 'CANCELLED', availabilityId: null }),
+    });
+    await new AppointmentsService(prisma).cancel('user-pat', 'appt-1');
+    expect(prisma.appointment.findUniqueOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('listMine (PATIENT): returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).listMine('user-pat', 'PATIENT');
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('listMine (DOCTOR): returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).listMine('user-doc', 'DOCTOR');
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+
+  it('getOne: returns the session projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).getOne('user-pat', 'PATIENT', 'appt-1');
+    expect(prisma.appointment.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_SESSION) }),
+    );
+  });
+});

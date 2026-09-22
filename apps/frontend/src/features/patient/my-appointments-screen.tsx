@@ -102,6 +102,16 @@ function AppointmentCard({
 
         {actionable && (
           <div className="flex flex-wrap gap-2 sm:justify-end">
+            {/* Entry point into the consultation room (sub-item 5). The room is
+                keyed by session id, which only appears on the row because the
+                backend joins the session onto every appointment read. */}
+            {appointment.consultationSession && (
+              <Button type="button" variant="cta" size="sm" asChild>
+                <Link to={`/patient/consultations/${appointment.consultationSession.id}`}>
+                  Join consultation
+                </Link>
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -120,6 +130,19 @@ function AppointmentCard({
               className="text-red-600 hover:text-red-700"
             >
               Cancel
+            </Button>
+          </div>
+        )}
+
+        {/* Completed appointments still need a way back into the room, because
+            that is where the notes and prescriptions live. The cancel/reschedule
+            actions are correctly hidden for a finished consultation. */}
+        {!actionable && appointment.consultationSession && (
+          <div className="flex flex-wrap gap-2 sm:justify-end">
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link to={`/patient/consultations/${appointment.consultationSession.id}`}>
+                View summary
+              </Link>
             </Button>
           </div>
         )}

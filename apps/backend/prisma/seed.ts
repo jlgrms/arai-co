@@ -1,4 +1,11 @@
-import { PrismaClient, Role, AccountState, ApprovalStatus } from '@prisma/client';
+import {
+  PrismaClient,
+  Role,
+  AccountState,
+  ApprovalStatus,
+  AppointmentStatus,
+  ConsultationState,
+} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
@@ -25,6 +32,13 @@ const BCRYPT_ROUNDS = 10;
 //     jordan.lee@example.com   Jordan Lee
 //     sam.rivera@example.com   Sam Rivera
 //     alex.kim@example.com     Alex Kim
+//
+//   CONSULTATION HISTORY (Jordan Lee only — see the block at the end of main()).
+//   Jordan has 3 COMPLETED consultations with notes and prescriptions across
+//   General Medicine, Psychiatry and Dermatology, plus 1 upcoming SCHEDULED
+//   session. Sign in as jordan.lee@example.com to demo the patient consultation
+//   workspace and the medical records view. Other patients intentionally have no
+//   history so the empty states are also reachable.
 // ---------------------------------------------------------------------------
 
 const ADMIN_PASSWORD = 'AdminPass123!';
@@ -102,6 +116,7 @@ async function main(): Promise<void> {
     { email: 'alex.kim@example.com', name: 'Alex Kim', contactDetails: 'alex.kim@example.com', basicMedicalHistory: 'Hypertension, on medication.', birthday: new Date('1978-07-23'), weight: 81.2, height: 172 },
   ];
 
+  const patientProfiles = [];
   for (const p of patientSeeds) {
     const user = await prisma.user.create({
       data: {
@@ -112,7 +127,7 @@ async function main(): Promise<void> {
       },
     });
     const initials = p.name.split(' ').map((n) => n[0]).join('').toUpperCase();
-    await prisma.patientProfile.create({
+    const profile = await prisma.patientProfile.create({
       data: {
         userId: user.id,
         name: p.name,
@@ -124,6 +139,7 @@ async function main(): Promise<void> {
         avatarInitialsOrRef: initials,
       },
     });
+    patientProfiles.push(profile);
   }
 
   // --- availability slots for each doctor (next 5 weekdays, 09:00-10:00) ---
@@ -165,6 +181,147 @@ async function main(): Promise<void> {
     { symptomOrConcern: 'insomnia', specialty: 'Psychiatry' },
   ];
   await prisma.symptomSpecialtyMap.createMany({ data: symptomMap });
+
+  // -------------------------------------------------------------------------
+  // Consultation history for Jordan Lee (Layer 6 sub-item 6 demo data).
+  //
+  // WHY THIS EXISTS: the consultation state machine is doctor-terminated —
+  // `complete` is DOCTOR-only and the terminal COMPLETED state is the ONLY
+  // state in which a patient may read their records (READ_PATIENT gate). A
+  // patient-only flow can therefore never produce a record. Without seeded
+  // history the Medical Records view (sub-item 6) is permanently empty and the
+  // patient workspace has no finished consultation to show.
+  //
+  // These are backdated: the appointment sits in the past, the session's
+  // joinedAt/completedAt are set, and the notes/prescriptions are authored as
+  // the treating doctor would have written them. Dates are derived from "now"
+  // at seed time so the history never drifts into the future.
+  // -------------------------------------------------------------------------
+  const jordan = patientProfiles[0];
+  const completedAt = (daysAgo: number, hour: number): Date => {
+    const d = new Date(base);
+    d.setDate(base.getDate() - daysAgo);
+    d.setHours(hour, 0, 0, 0);
+    return d;
+  };
+
+  // [doctor index, daysAgo, start hour, note/prescription payload]
+  const consultationSeeds = [
+    {
+      doctorIndex: 2, // Dr. Rohan Patel — General Medicine
+      daysAgo: 21,
+      hour: 10,
+      findings:
+        'Patient presented with a persistent dry cough for three weeks, worse at night. Chest clear on auscultation, no fever, no wheeze. Likely post-viral airway irritation.',
+      recommendations:
+        'Rest, adequate fluids, and a humidifier at night. Avoid smoke and other airway irritants. Return if the cough persists beyond two more weeks or is accompanied by fever, breathlessness, or blood.',
+      prescriptions: [
+        { details: 'Chlorphenamine 4mg — 1 tablet at night for 5 nights, for sleep disruption from coughing' },
+      ],
+    },
+    {
+      doctorIndex: 5, // Dr. Mateo Silva — Psychiatry
+      daysAgo: 12,
+      hour: 15,
+      findings:
+        'Follow-up for anxiety with work-related triggers. Reports improved sleep since the last review but continued low-level worry through the working week. No panic episodes in the last month.',
+      recommendations:
+        'Continue the current dose. Introduce a brief daily breathing exercise. Review again in four weeks; consider referral for talking therapy if symptoms plateau.',
+      prescriptions: [
+        { details: 'Sertraline 50mg — 1 tablet daily, continue for 4 weeks then review' },
+      ],
+    },
+    {
+      doctorIndex: 1, // Dr. Amara Okafor — Dermatology
+      daysAgo: 5,
+      hour: 11,
+      findings:
+        'Eczema flare across both forearms and the dorsum of the hands, consistent with a contact irritant trigger. Skin dry with mild lichenification, no evidence of secondary infection.',
+      recommendations:
+        'Emollient twice daily even when the skin is clear. Use the topical steroid for up to 10 days, then stop. Identify and avoid the suspected irritant; a review is not needed unless the flare recurs.',
+      prescriptions: [
+        { details: 'Hydrocortisone 1% cream — apply a thin layer to affected areas twice daily for up to 10 days' },
+        { details: 'Emollient cream 500g — apply liberally twice daily, continue indefinitely' },
+      ],
+    },
+  ];
+
+  for (const c of consultationSeeds) {
+    const doctor = doctorProfiles[c.doctorIndex];
+    const when = completedAt(c.daysAgo, c.hour);
+
+    // Past appointment, marked COMPLETED to match its session's terminal state
+    // (the two must agree or the records view and the appointment list disagree).
+    const appointment = await prisma.appointment.create({
+      data: {
+        patientProfileId: jordan.id,
+        doctorProfileId: doctor.id,
+        // No availabilityId: the slot it occupied is long past and leaving it
+        // linked would make a historical booking appear to consume a live slot.
+        availabilityId: null,
+        scheduledAt: when,
+        status: AppointmentStatus.COMPLETED,
+      },
+    });
+
+    const session = await prisma.consultationSession.create({
+      data: {
+        appointmentId: appointment.id,
+        state: ConsultationState.COMPLETED,
+        joinedAt: when,
+        patientJoinedAt: when,
+        doctorJoinedAt: when,
+        completedAt: when,
+      },
+    });
+
+    await prisma.consultationNote.create({
+      data: {
+        sessionId: session.id,
+        findings: c.findings,
+        recommendations: c.recommendations,
+        recordedAt: when,
+      },
+    });
+
+    for (const rx of c.prescriptions) {
+      await prisma.prescription.create({
+        data: { sessionId: session.id, details: rx.details, issuedAt: when },
+      });
+    }
+  }
+
+  // An upcoming consultation for Jordan so the workspace has a joinable session
+  // (SCHEDULED) to demonstrate, without waiting for a booking to be made by hand.
+  const upcomingDoctor = doctorProfiles[2]; // Dr. Rohan Patel
+  const upcomingSlot = new Date(base);
+  upcomingSlot.setDate(base.getDate() + 2);
+  upcomingSlot.setHours(14, 0, 0, 0);
+  const upcomingEnd = new Date(upcomingSlot);
+  upcomingEnd.setHours(15, 0, 0, 0);
+
+  const upcomingAvailability = await prisma.availability.create({
+    data: {
+      doctorProfileId: upcomingDoctor.id,
+      startTime: upcomingSlot,
+      endTime: upcomingEnd,
+      isBlocked: false,
+    },
+  });
+
+  const upcomingAppointment = await prisma.appointment.create({
+    data: {
+      patientProfileId: jordan.id,
+      doctorProfileId: upcomingDoctor.id,
+      availabilityId: upcomingAvailability.id,
+      scheduledAt: upcomingSlot,
+      status: AppointmentStatus.BOOKED,
+    },
+  });
+
+  await prisma.consultationSession.create({
+    data: { appointmentId: upcomingAppointment.id, state: ConsultationState.SCHEDULED },
+  });
 
   console.log('Seed complete.');
 }

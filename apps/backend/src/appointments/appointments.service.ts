@@ -47,10 +47,24 @@ const APPOINTMENT_DOCTOR_SELECT = {
   approvalStatus: true,
 } as const;
 
-/** Every appointment read includes the consulting doctor under `doctorProfile`. */
+/**
+ * Every appointment read includes:
+ *   - the consulting doctor under `doctorProfile` (sub-item 4), and
+ *   - the consultation session id under `consultationSession` (sub-item 5).
+ *
+ * The session id matters because the consultation workspace is addressed by
+ * SESSION id, and session ids are distinct from appointment ids — a patient
+ * cannot derive one from the other. Without this projection the only way into a
+ * consultation room would be to already know its UUID, so the workspace would be
+ * unreachable from the UI. `book` has always returned the session; the read
+ * paths now match it.
+ */
 const WITH_DOCTOR = {
   doctorProfile: {
     select: APPOINTMENT_DOCTOR_SELECT,
+  },
+  consultationSession: {
+    select: { id: true, state: true },
   },
 } satisfies Prisma.AppointmentInclude;
 
@@ -81,7 +95,10 @@ export class AppointmentsService {
         status: AppointmentStatus.BOOKED,
         consultationSession: { create: { state: 'SCHEDULED' } },
       },
-      include: { consultationSession: true, ...WITH_DOCTOR },
+      // WITH_DOCTOR now supplies the consultationSession projection too, so it
+      // must not also be listed here — a duplicate key would silently overwrite
+      // the projection (TS2783) and shrink the returned session.
+      include: { ...WITH_DOCTOR },
     });
 
     // Sub-item 8: notify BOTH affected parties (S5.2/S5.3). Synchronous writes
