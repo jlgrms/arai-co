@@ -67,20 +67,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Toaster } from '@/components/ui/sonner';
 
 const palette = [
-  { name: 'background', hex: '#F2F2F2', var: '--brand-background' },
-  { name: 'surface', hex: '#FFFFFF', var: '--brand-surface' },
-  { name: 'ink (foreground)', hex: '#14213D', var: '--brand-ink' },
-  { name: 'ink-foreground', hex: '#F2F2F2', var: '--brand-ink-foreground' },
-  { name: 'accent (coral)', hex: '#FF7F50', var: '--brand-accent' },
-  { name: 'yellow', hex: '#FFD166', var: '--brand-yellow' },
-  { name: 'green', hex: '#06D6A0', var: '--brand-green' },
-  { name: 'blue', hex: '#118AB2', var: '--brand-blue' },
-  { name: 'green tint', hex: '#D9FAF0', var: '--brand-green-tint' },
-  { name: 'green text', hex: '#0A7F5C', var: '--brand-green-text' },
-  { name: 'success tint', hex: '#D9FAF0', var: '--brand-success-tint' },
-  { name: 'success text', hex: '#0A7F5C', var: '--brand-success-text' },
-  { name: 'danger tint', hex: '#FFE4D9', var: '--brand-danger-tint' },
-  { name: 'danger text', hex: '#B34A1F', var: '--brand-danger-text' },
+  // ARAI.CO v3 tokens. This list mirrors arai-design-guideline-v3.md exactly —
+  // if a hex and its token drift apart, the guideline wins.
+  { name: 'ink', hex: '#132B3E', var: '--ink' },
+  { name: 'ink-muted', hex: '#536979', var: '--ink-muted' },
+  { name: 'ink-faint', hex: '#7D8D97', var: '--ink-faint' },
+  { name: 'brand-coral', hex: '#FF705B', var: '--brand-coral' },
+  { name: 'brand-coral-dark', hex: '#E75A46', var: '--brand-coral-dark' },
+  { name: 'brand-mint', hex: '#DFF7EC', var: '--brand-mint' },
+  { name: 'accent-green', hex: '#BDEBD2', var: '--accent-green' },
+  { name: 'accent-peach', hex: '#FFE0D2', var: '--accent-peach' },
+  { name: 'accent-yellow', hex: '#FFD166', var: '--accent-yellow' },
+  { name: 'accent-blue', hex: '#118AB2', var: '--accent-blue' },
+  { name: 'surface-page', hex: '#F5F8F6', var: '--surface-page' },
+  { name: 'surface-card', hex: '#FFFFFF', var: '--surface-card' },
+  { name: 'border-default', hex: '#DDE7E2', var: '--border-default' },
+  { name: 'status-success', hex: '#07875F', var: '--status-success' },
+  { name: 'status-danger', hex: '#C9473C', var: '--status-danger' },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

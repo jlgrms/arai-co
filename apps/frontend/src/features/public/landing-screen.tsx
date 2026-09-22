@@ -25,17 +25,23 @@ import {
  * no-scroll composition. Per the agreed decision, we translate its LAYOUT AND
  * STRUCTURE and map its colours onto the EXISTING project tokens. The design's
  * own palette is NOT adopted: it disagrees with arai-brand-design-reference.md
- * (which is normative) on 8 of 10 colours, and adopting it would repaint every
- * screen delivered in Layers 2-8.
+ * (arai-design-guideline-v3.md, which is normative) on 8 of 10 colours, and
+ * adopting it would repaint every screen delivered in Layers 2-8.
  *
- *   design hex   -> token
- *   #f8fbf8      -> bg-background / bg-surface
- *   #132b3e      -> text-ink
- *   #ff705b      -> bg-accent / text-accent   (brand coral #FF7F50)
- *   #dff7ec      -> bg-green-tint
- *   #ffe0d2      -> bg-danger-tint
- *   #dbe6e1      -> border-border
- *   #526777      -> text-muted-foreground
+ * v3 ADOPTION: the project tokens were migrated to the v3 palette in Layer 10
+ * (see index.css). The mapping below is therefore now an identity on colour:
+ * the "design hex" column below is the same hex v3 specifies, and it arrives
+ * through the v3 token on the right. The landing page's rendered output is
+ * unchanged by that migration — it already used tokens rather than raw hex.
+ *
+ *   v3 hex   -> token
+ *   #f5f8f6  -> bg-background / bg-surface   (--surface-page)
+ *   #132b3e  -> text-ink                     (--ink)
+ *   #ff705b  -> bg-accent / text-accent      (--brand-coral)
+ *   #dff7ec  -> bg-green-tint                (--brand-mint)
+ *   #ffe0d2  -> bg-danger-tint               (--accent-peach)
+ *   #dde7e2  -> border-border                (--border-default)
+ *   #536979  -> text-muted-foreground        (--ink-muted)
  *
  * Two design-only fixes applied deliberately:
  *   - The design's `.step` colour (#91a0aa on white) measures 2.69:1, below AA.
@@ -340,9 +346,12 @@ export function LandingScreen() {
           <div className="relative z-10 mt-8 hidden w-max items-center gap-2.5 rounded-full border border-ink/10 bg-surface/60 px-3.5 py-2.5 text-xs font-bold text-muted-foreground sm:inline-flex">
             <span
               aria-hidden="true"
-              className="grid size-7 place-items-center rounded-full bg-surface shadow-sm"
+              className="grid size-7 place-items-center rounded-full bg-surface shadow-small"
             >
-              <span className="size-2 rounded-full bg-green shadow-[0_0_0_4px_rgb(6_214_160/0.15)]" />
+              <span
+                aria-hidden="true"
+                className="size-2 rounded-full bg-accent-green shadow-[0_0_0_4px_rgb(189_235_210/0.35)]"
+              />
             </span>
             Simulan sa nararamdaman mo
           </div>

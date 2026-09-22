@@ -14,8 +14,8 @@ interface SidebarNavProps {
  * the mobile overlay drawer — same items, same active styling, one component.
  *
  * CONTRAST (dark navy sidebar, per approved dashboard mockup):
- *  - active   = light "cutout" pill: #F2F2F2 bg, #14213D text (ink-foreground / ink)
- *  - inactive = translucent light text: rgba(242,242,242,0.75), transparent bg
+ *  - active   = light "cutout" pill: #FFFFFF bg, #132B3E text (ink-foreground / ink)
+ *  - inactive = translucent light text: rgba(255,255,255,0.75), transparent bg
  * The sidebar is always bg-ink, so these tokens are fixed rather than
  * theme-dependent. Hover uses a faint light wash that stays AA-legible.
  */

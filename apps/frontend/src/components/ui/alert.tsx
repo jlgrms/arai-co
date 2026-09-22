@@ -14,8 +14,8 @@ const alertVariants = cva(
       variant: {
         default: 'border-border bg-surface text-ink',
         info: 'border-border bg-blue/15 text-ink',
-        success: 'border-transparent bg-success-tint text-success-text',
-        destructive: 'border-transparent bg-danger-tint text-danger-text',
+        success: 'border-transparent bg-success-tint text-status-success',
+        destructive: 'border-transparent bg-danger-tint text-status-danger',
       },
     },
     defaultVariants: { variant: 'default' },

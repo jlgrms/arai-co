@@ -10,12 +10,12 @@ function Toaster(props: ToasterProps) {
       position="top-right"
       toastOptions={{
         classNames: {
-          toast: 'rounded-lg border border-border bg-surface text-ink shadow-md',
+          toast: 'rounded-lg border border-border bg-surface text-ink shadow-small',
           description: 'text-muted-foreground',
           actionButton: 'bg-primary text-primary-foreground',
           cancelButton: 'bg-muted text-muted-foreground',
-          error: 'border-transparent bg-danger-tint text-danger-text',
-          success: 'border-transparent bg-success-tint text-success-text',
+          error: 'border-transparent bg-danger-tint text-status-danger',
+          success: 'border-transparent bg-success-tint text-status-success',
         },
       }}
       {...props}
