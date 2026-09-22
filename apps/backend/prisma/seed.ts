@@ -340,6 +340,130 @@ async function main(): Promise<void> {
     data: { appointmentId: upcomingAppointment.id, state: ConsultationState.SCHEDULED },
   });
 
+  // -------------------------------------------------------------------------
+  // NOTIFICATION FIXTURE — drive a REAL booking through the running API.
+  //
+  // WHY: `evidence-sub5-backend.mjs` asserts the bell's read paths (mark-read,
+  // unread count, ownership 403) against `jordan.lee@example.com`. The seed gave
+  // NO patient any notification — only `dr.okafor` had rows — so section 2 was
+  // false by construction and sections 3-6 passed vacuously (an empty array is
+  // trivially sorted; there is no row to mark or to be refused). See DEFERRED
+  // item 11.
+  //
+  // WHY AN HTTP CALL AND NOT `prisma.notification.createMany`: the point is to
+  // produce rows that the REAL Layer 4 sub-item 8 path generated, so the fixture
+  // cannot silently drift from what `AppointmentsService.book()` actually
+  // writes. `notifyBothParties` is a PRIVATE method, so a Prisma-only script
+  // cannot call it. Driving POST /appointments is the only way to execute it.
+  // Replicating the two-row write here would reproduce today's output and
+  // diverge the moment the service changes — exactly the class of bug this
+  // fixture exists to catch.
+  //
+  // >>> OPERATIONAL DEPENDENCY, READ THIS BEFORE MOVING THE SEED <<<
+  // This step REQUIRES THE BACKEND TO BE RUNNING ON :3000. Every other part of
+  // this file talks to Postgres directly and works cold. If the API is
+  // unreachable this step SKIPS (it does not fail the seed), and the seeded
+  // notification fixture is then ABSENT — which silently reintroduces the
+  // vacuous-harness problem this block exists to fix. `docker compose up` starts
+  // Postgres, backend and frontend together, so the normal path is fine; a bare
+  // `prisma db seed` against a stopped backend is the case to watch. The skip is
+  // loud on stdout for that reason.
+  //
+  // The appointment this creates is a legitimate seeded BOOKED appointment, so
+  // it is part of the documented baseline (Appointment and ConsultationSession
+  // go up by one, Notification by two — one per party on the BOOKING_CONFIRMED
+  // event). Do not hand-delete it; reseed instead.
+  // -------------------------------------------------------------------------
+  const API_BASE = process.env.API_BASE ?? 'http://localhost:3000';
+  const jordanUser = await prisma.user.findUnique({
+    where: { email: 'jordan.lee@example.com' },
+    select: { id: true },
+  });
+  async function issueToken(email: string, password: string): Promise<string | null> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { accessToken?: string };
+      return body.accessToken ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (!jordanUser) {
+    console.warn('  ! notification fixture skipped: jordan.lee has no User row');
+  } else {
+    // The doctor MUST be dr.patel: `evidence-sub5-backend.mjs` section 6 signs in
+    // as dr.patel to obtain "another user's notification" for the ownership 403.
+    // Booking with any other doctor leaves dr.patel's feed empty and section 6
+    // fails for want of a row — which is how this was caught. The choice of
+    // doctor is therefore load-bearing for that harness, not arbitrary.
+    const doctorToken = await issueToken('dr.patel@example.com', DOCTOR_PASSWORD);
+    const patientToken = await issueToken('jordan.lee@example.com', PATIENT_PASSWORD);
+
+    if (!doctorToken || !patientToken) {
+      console.warn(
+        `  ! notification fixture SKIPPED — backend not reachable at ${API_BASE}.\n` +
+          '    The bell harness will report vacuous sections until this runs.\n' +
+          '    Start the backend and re-run `pnpm --filter backend prisma:seed`.',
+      );
+    } else {
+      // Far-future slot so it cannot collide with the live next-5-days schedule
+      // above, and so the fixture never consumes a slot a demo would want.
+      const fixtureStart = new Date(base);
+      fixtureStart.setDate(base.getDate() + 120);
+      fixtureStart.setHours(9, 0, 0, 0);
+      const fixtureEnd = new Date(fixtureStart);
+      fixtureEnd.setHours(10, 0, 0, 0);
+
+      const slotRes = await fetch(`${API_BASE}/doctors/me/availability`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${doctorToken}`,
+        },
+        body: JSON.stringify({
+          startTime: fixtureStart.toISOString(),
+          endTime: fixtureEnd.toISOString(),
+        }),
+      });
+      const slot = (await slotRes.json()) as { id?: string };
+
+      if (!slot.id) {
+        console.warn(
+          `  ! notification fixture SKIPPED — slot creation failed (${slotRes.status}).`,
+        );
+      } else {
+        const bookRes = await fetch(`${API_BASE}/appointments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${patientToken}`,
+          },
+          body: JSON.stringify({ availabilityId: slot.id }),
+        });
+        const booked = (await bookRes.json()) as { id?: string };
+        if (!booked.id) {
+          console.warn(
+            `  ! notification fixture SKIPPED — booking failed (${bookRes.status}).`,
+          );
+        } else {
+          const notifCount = await prisma.notification.count({
+            where: { userId: jordanUser.id },
+          });
+          console.log(
+            `  + notification fixture: real booking ${booked.id} via POST /appointments; ` +
+              `jordan.lee now has ${notifCount} notification(s)`,
+          );
+        }
+      }
+    }
+  }
+
   console.log('Seed complete.');
 }
 

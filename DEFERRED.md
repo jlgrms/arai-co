@@ -121,16 +121,24 @@ CANCELLED+SCHEDULED (1, john's), COMPLETED+COMPLETED (3, seeded).
 
 A reseed during Layer 9 returned the database to its canonical seed content. This
 is what `pnpm --filter backend prisma:seed` produces with nothing else added, and
-it is the correct baseline to compare against *immediately after a reseed*:
+it is the correct baseline to compare against *immediately after a reseed*.
+
+**UPDATED (item 11 resolution):** the seed now also performs one real booking
+through the live API to generate the notification fixture, so Appointment,
+ConsultationSession and Availability each moved up by one and Notification is now
+seed-produced rather than hand-made. See item 11 for the before/after and for the
+backend-must-be-running caveat — if the API is down, the notification step skips
+and Notification reads 0.
 
 | Table | Count |
 | --- | --- |
 | User | 10 (1 admin, 6 doctors, 3 seed patients) |
 | PatientProfile | 3 |
 | DoctorProfile | 6 |
-| Appointment | 4 (3 COMPLETED history + 1 upcoming BOOKED, all Jordan's) |
-| ConsultationSession | 4 |
-| Availability | 31 |
+| Appointment | 5 (3 COMPLETED history + 1 upcoming BOOKED + 1 notification-fixture BOOKED, all Jordan's) |
+| ConsultationSession | 5 |
+| Availability | 32 (31 scheduled + 1 far-future notification-fixture slot, booked) |
+| Notification | 2 (`jordan.lee` + `dr.patel`, from the fixture booking; 0 if the backend was down at seed time) |
 | SymptomSpecialtyMap | 18 (14 original + `headache`, `migraine`, `sore throat`, `stomach ache`) |
 
 **Two baselines, and the difference matters.** `john@test.com` and its three
@@ -570,9 +578,11 @@ returned the database to pure seed state — see the baseline section below.
 
 ## 11. Patients are seeded with zero notifications, so the bell's read paths are unproven
 
-**Status:** OPEN — a fixture gap found during the harness work, needs a decision.
+**Status:** RESOLVED (stakeholder decision: extend the seed, do not repoint the
+harness). The seed now produces a real patient notification fixture by driving the
+live booking API.
 
-**What is unproven.** The seed gives **no patient any notifications**. Counts by
+**What was unproven.** The seed gave **no patient any notifications**. Counts by
 user on a fresh seed:
 
 ```
@@ -613,6 +623,96 @@ no seeded notifications** — which may itself be a seeding defect worth attenti
 notifications (changing the documented baseline and any harness asserting it), or
 whether the harness should authenticate as the account that has them. Either way
 the four sections above need a genuine fixture, not a vacuous one.
+
+**Resolution — a real booking through the live API, not fixture rows.**
+`prisma/seed.ts` now ends with a step that drives the actual HTTP API: it logs in
+as `dr.patel` and `jordan.lee`, creates one far-future slot via
+`POST /doctors/me/availability`, then books it via `POST /appointments`. That is
+the **real Layer 4 sub-item 8 path** — `AppointmentsService.book()` executes and
+its private `notifyBothParties()` writes the two `BOOKING_CONFIRMED` rows. The
+rows are therefore service-produced, and cannot drift from what the service
+writes. Replicating the two-row `createMany` in the seed was considered and
+rejected: it would reproduce today's output and diverge silently the moment the
+service changed, which is the exact failure class this fixture exists to catch.
+The existing `scripts/book-chen-notification.sh` established the precedent.
+
+**The 403 fixture forced the choice of doctor.** The first implementation booked
+with `dr.chen` and section 6 still failed (`doctor row id present — got false`):
+section 6 signs in as **`dr.patel`** to obtain "another user's notification" for
+the ownership 403. Booking with any other doctor leaves *patel's* feed empty. The
+seed now books with `dr.patel`, and the comment says why the choice is
+load-bearing rather than stylistic. Caught by running the harness, not by reading
+it.
+
+**New operational dependency (documented in the seed and here).** This step
+requires the **backend to be running on :3000**. Every other part of `seed.ts`
+talks to Postgres directly and works cold. If the API is unreachable the step
+**skips loudly** (it does not fail the seed), and the notification fixture is then
+absent — silently reintroducing the vacuous-harness problem this fixes.
+`docker compose up` starts Postgres, backend and frontend together, so the normal
+path is fine; a bare `prisma db seed` against a stopped backend is the case to
+watch. The seed prints the skip reason and the remedy.
+
+Also note the seed must run **inside the backend container**
+(`docker exec telehealth-backend npx prisma db seed`): `DATABASE_URL` uses the
+Docker-internal hostname `postgres:5432`, so running it from the host fails with
+`Can't reach database server at postgres:5432`. Running it in the container is
+also what lets `API_BASE=http://localhost:3000` reach the live backend.
+
+**Baseline change (intended).** The fixture adds a real BOOKED appointment, so the
+pure-seed baseline moves:
+
+| Table | Before | After |
+| --- | --- | --- |
+| Appointment | 4 | **5** |
+| ConsultationSession | 4 | **5** |
+| Availability | 31 | **32** |
+| Notification | 5 (`dr.okafor` only, hand-made) | **2** (`jordan.lee` + `dr.patel`, seed-produced) |
+
+The notification *count* falls 5 → 2 because the previous 5 rows were hand-made
+data on `dr.okafor` that the seed's `deleteMany()` had always wiped — they were
+**never** seed output, so a reseed never reproduced them. The new 2 are
+reproducible from a cold start. Provenance on a fresh seed is now exactly:
+
+```
+dr.patel@example.com     1   (BOOKING_CONFIRMED, names Jordan Lee)
+jordan.lee@example.com   1   (BOOKING_CONFIRMED, names Dr. Rohan Patel)
+```
+
+**Measured result — the harness went from 1 vacuous-or-crashing run to 19/19.**
+
+Before (this session, pre-fix): `PASS=17 FAIL=1` with sections 2–6 either vacuous
+or unable to run, exit 1.
+
+After, two consecutive runs:
+
+```
+run 1  exit 0   PASS=19 FAIL=0   reclaimed 5/5   baseline stable
+run 2  exit 0   PASS=19 FAIL=0   reclaimed 5/5   baseline stable
+RESULT: ALL NOTIFICATION-BELL BACKEND CHECKS PASSED
+```
+
+The four previously-vacuous sections now exercise real data:
+
+- **§2** `patient has >=1 notification` — real (was false by construction).
+- **§3** ordering — real rows (was trivially true on `[]`).
+- **§4** unread badge — **1**, a real count (was 0 on an empty array).
+- **§5** mark-read — a real row flips `read` true and re-marks idempotently (was
+  unable to run at all).
+- **§6** ownership 403 — a **real 403** from a genuine other-user row (was unable
+  to run; it would have PATCHed `/notifications/undefined/read` and seen 400,
+  which is not evidence of the ownership rule).
+
+DB after each run: User 10, PatientProfile 3, DoctorProfile 6, Appointment 5,
+ConsultationSession 5, Availability 32, Notification 2, SymptomSpecialtyMap 18 —
+zero drift, `reclaimed 5/5`. This harness is now **exit 0 for the first time**;
+its previous non-zero exit was the honest report of this exact gap.
+
+**Residual note.** §5 marks the *seeded* `jordan.lee` row read, so after a run
+that row is `read=true` until the next reseed. The harness still passes on a
+re-run (`find(n => !n.read) || n[0]` falls back to the first row), and the
+assertion is about the transition, not the initial value.
+
 
 ## 12. `evidence-sub3-auth.mjs` cannot exercise the 403 login branch
 
