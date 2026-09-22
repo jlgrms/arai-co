@@ -4,10 +4,14 @@ import { AppShell } from '@/components/layout/app-shell';
 import { PlaceholderPage } from '@/components/layout/placeholder-page';
 import StyleGuidePage from '@/dev/style-guide';
 import {
-  LoginPlaceholder,
+  LoginScreen,
+  PatientRegisterScreen,
+  DoctorRegisterScreen,
+  RegisterChooserScreen,
+} from '@/features/auth/auth-screens';
+import {
   NotFoundPlaceholder,
   PublicHomePlaceholder,
-  RegisterPlaceholder,
 } from '@/features/public/public-screens';
 import { RequireRole } from './route-guard';
 
@@ -36,10 +40,10 @@ function AppShellWithOutlet() {
 export const router = createBrowserRouter([
   // --- Public surface ---
   { path: '/', element: <PublicHomePlaceholder /> },
-  { path: '/login', element: <LoginPlaceholder /> },
-  { path: '/register', element: <RegisterPlaceholder /> },
-  { path: '/register/patient', element: <RegisterPlaceholder /> },
-  { path: '/register/doctor', element: <RegisterPlaceholder /> },
+  { path: '/login', element: <LoginScreen /> },
+  { path: '/register', element: <RegisterChooserScreen /> },
+  { path: '/register/patient', element: <PatientRegisterScreen /> },
+  { path: '/register/doctor', element: <DoctorRegisterScreen /> },
 
   // --- Dev-only style reference ---
   { path: '/dev/style-guide', element: <StyleGuidePage /> },

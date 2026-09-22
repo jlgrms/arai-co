@@ -67,38 +67,6 @@ export function PublicHomePlaceholder() {
   );
 }
 
-export function LoginPlaceholder() {
-  return (
-    <PublicFrame showNav={false}>
-      <div className="space-y-4 text-center">
-        <h1 className="font-heading text-2xl font-semibold text-ink">Sign in</h1>
-        <p className="text-sm text-muted-foreground">
-          The sign-in screen is delivered in the next sub-item.
-        </p>
-        <Button asChild variant="outline">
-          <Link to="/">Back to home</Link>
-        </Button>
-      </div>
-    </PublicFrame>
-  );
-}
-
-export function RegisterPlaceholder() {
-  return (
-    <PublicFrame showNav={false}>
-      <div className="space-y-4 text-center">
-        <h1 className="font-heading text-2xl font-semibold text-ink">Create an account</h1>
-        <p className="text-sm text-muted-foreground">
-          Patient and doctor registration screens are delivered in the next sub-item.
-        </p>
-        <Button asChild variant="outline">
-          <Link to="/">Back to home</Link>
-        </Button>
-      </div>
-    </PublicFrame>
-  );
-}
-
 export function NotFoundPlaceholder() {
   return (
     <PublicFrame>
