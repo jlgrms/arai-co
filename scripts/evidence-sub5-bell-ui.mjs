@@ -18,11 +18,62 @@
 // the doctor's bell was never opened by any harness. U7-U9 close that gap.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createReclaimer } from './lib/reclaim.mjs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9226;
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3000';
+
+// Fixture reclamation (DEFERRED item 1). Measured before this change: a run that
+// reported "reclaimed 2/2 slots" actually leaked 2 users, 2 appointments and 8
+// notifications. Everything this run creates is now tracked and removed by id.
+const reclaim = createReclaimer({ label: 'sub5-bell-ui' });
+
+// Helper: snapshot a user's notification ids, so a booking's new rows can be
+// identified afterwards. Notification has no Appointment FK (see
+// scripts/lib/reclaim.mjs), so deleting the appointment does NOT remove them and
+// they have to be tracked explicitly.
+async function notificationIds(token) {
+  const r = await fetch(`${API}/notifications/me`, { headers: { Authorization: `Bearer ${token}` } });
+  const rows = (await r.json()) || [];
+  return new Set(Array.isArray(rows) ? rows.map((n) => n.id) : []);
+}
+async function trackNewNotifications(token, beforeIds) {
+  const after = await fetch(`${API}/notifications/me`, { headers: { Authorization: `Bearer ${token}` } });
+  const rows = (await after.json()) || [];
+  for (const n of Array.isArray(rows) ? rows : []) {
+    if (!beforeIds.has(n.id)) reclaim.trackNotification(n.id);
+  }
+}
+
+// Helper: create a slot + booking for a patient, tracking every id it creates.
+// Returns the slot id. Used by both the patient-feed seeding and the doctor probe.
+async function bookOnNewSlot({ doctorToken, patientToken, utcMonth, offsetBase }) {
+  const mk = (m) => new Date(Date.UTC(utcMonth[0], utcMonth[1], utcMonth[2], 9, 0, 0, 0) + m * 60000).toISOString();
+  const off = (Date.now() % 100000) + offsetBase;
+  const slotRes = await fetch(`${API}/doctors/me/availability`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${doctorToken}` },
+    body: JSON.stringify({ startTime: mk(off), endTime: mk(off + 30) }),
+  });
+  const slot = (await slotRes.json()).id;
+  reclaim.trackSlot(slot);
+  // Snapshot BOTH parties. A booking notifies the patient AND the doctor, and
+  // both are seeded accounts here, so neither set cascades on user delete.
+  const beforeP = await notificationIds(patientToken);
+  const beforeD = await notificationIds(doctorToken);
+  const bookRes = await fetch(`${API}/appointments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${patientToken}` },
+    body: JSON.stringify({ availabilityId: slot }),
+  });
+  const booked = await bookRes.json();
+  if (booked.id) reclaim.trackAppointment(booked.id);
+  await trackNewNotifications(patientToken, beforeP);
+  await trackNewNotifications(doctorToken, beforeD);
+  return { slot, status: bookRes.status, booked };
+}
 
 const chrome = spawn(
   CHROME,
@@ -88,56 +139,20 @@ async function openBell() {
 const results = [];
 async function step(name, fn) { try { results.push(`PASS  ${name}  ->  ${await fn()}`); } catch (e) { results.push(`FAIL  ${name}  ->  ${e.message}`); } }
 
-// Slots created by this harness, reclaimed at the end. Each run used to leave one
-// behind forever, which accreted ~15 stray future slots on Dr. Patel across a
-// day of runs and drifted the DB away from its baseline. A harness that mutates
-// shared state must put it back.
-//
-// The reclaim has to cancel the appointment FIRST: DELETE is gated on the slot
-// having no live consumer (409 "This slot is booked by an appointment"). And the
-// cancel must be made by the appointment's OWNER — the two fixtures book as
-// different patients (jordan.lee and the throwaway probe account), so the owner
-// is resolved from the row rather than assumed. Getting this wrong fails
-// silently: the DELETE 409s and the slot survives, which is exactly how the
-// drift went unnoticed the first time.
-const createdSlots = [];
-async function releaseSlot(doctorToken, slotId) {
-  if (!slotId) return { deleted: false, reason: 'no slot id' };
-  const appts = await (await fetch(`${API}/appointments/me`, { headers: { Authorization: `Bearer ${doctorToken}` } })).json();
-  const onSlot = Array.isArray(appts) ? appts.find((a) => a.availabilityId === slotId) : null;
-
-  if (onSlot) {
-    // The doctor-side appointment projection carries patientProfile.name but not
-    // the email, so map the name to the account that booked it. Only two accounts
-    // can own a slot this harness created.
-    const ownerEmail =
-      onSlot.patientProfile?.name === 'Jordan Lee'
-        ? 'jordan.lee@example.com'
-        : probePatientEmail;
-    const ownerPassword = ownerEmail === 'jordan.lee@example.com' ? 'PatientPass123!' : 'Password123!';
-    if (ownerEmail) {
-      const owner = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: ownerEmail, password: ownerPassword }) })).json();
-      if (owner.accessToken) {
-        await fetch(`${API}/appointments/${onSlot.id}/cancel`, { method: 'PATCH', headers: { Authorization: `Bearer ${owner.accessToken}` } });
-      }
-    }
-  }
-
-  const del = await fetch(`${API}/doctors/me/availability/${slotId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${doctorToken}` } });
-  return { deleted: del.ok, status: del.status, hadAppointment: Boolean(onSlot) };
-}
-
 await send('Page.enable'); await send('Runtime.enable');
 
-// Seed a real notification for the patient so the list is non-empty.
+// Seed a real notification for the patient so the list is non-empty. Everything
+// this creates (slot, appointment, and the notification the booking generates) is
+// tracked for removal.
 {
   const pl = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'jordan.lee@example.com', password: 'PatientPass123!' }) })).json();
-  const dl = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dr.patel@example.com', password: 'DoctorPass123!' }) })).json();
-  const off = (Date.now() % 100000) + 80000;
-  const mk = (m) => new Date(Date.UTC(2027, 5, 1, 9, 0, 0, 0) + m * 60000).toISOString();
-  const slot = (await (await fetch(`${API}/doctors/me/availability`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dl.accessToken}` }, body: JSON.stringify({ startTime: mk(off), endTime: mk(off + 30) }) })).json()).id;
-  await fetch(`${API}/appointments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pl.accessToken}` }, body: JSON.stringify({ availabilityId: slot }) });
-  createdSlots.push({ token: dl.accessToken, slotId: slot });
+  const dl = (await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dr.patel@example.com', password: 'DoctorPass123!' }) })).json());
+  await bookOnNewSlot({
+    doctorToken: dl.accessToken,
+    patientToken: pl.accessToken,
+    utcMonth: [2027, 5, 1],
+    offsetBase: 80000,
+  });
 }
 
 // U1: patient bell trigger present.
@@ -199,16 +214,21 @@ let probePatientEmail = null;
   const dl = (await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: DOC_EMAIL, password: 'DoctorPass123!' }) })).json()).accessToken;
   const suffix = Date.now();
   probePatientEmail = `bell.doc.${suffix}@example.com`;
-  const pl = (await (await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: probePatientEmail, password: 'Password123!', name: UNIQUE_PATIENT }) })).json()).accessToken;
+  const reg = await (await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: probePatientEmail, password: 'Password123!', name: UNIQUE_PATIENT }) })).json();
+  // The register response is FLAT — { accessToken, userId, role } — not
+  // { user: { id } }. Reading the wrong field silently no-ops and leaks the
+  // account while reporting clean.
+  if (reg.userId) reclaim.trackUser(reg.userId, probePatientEmail);
+  const pl = reg.accessToken;
 
   // A slot far in the future so it cannot collide with the layer harnesses.
-  const mk = (m) => new Date(Date.UTC(2027, 7, 1, 9, 0, 0, 0) + m * 60000).toISOString();
-  const off = (Date.now() % 100000) + 400000;
-  const slotRes = await fetch(`${API}/doctors/me/availability`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dl}` }, body: JSON.stringify({ startTime: mk(off), endTime: mk(off + 30) }) });
-  const slot = (await slotRes.json()).id;
-  const bookRes = await fetch(`${API}/appointments`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pl}` }, body: JSON.stringify({ availabilityId: slot }) });
-  if (bookRes.status !== 201) throw new Error(`fixture booking failed ${bookRes.status}: ${JSON.stringify(await bookRes.json())}`);
-  createdSlots.push({ token: dl, slotId: slot });
+  const { status, booked } = await bookOnNewSlot({
+    doctorToken: dl,
+    patientToken: pl,
+    utcMonth: [2027, 7, 1],
+    offsetBase: 400000,
+  });
+  if (status !== 201) throw new Error(`fixture booking failed ${status}: ${JSON.stringify(booked)}`);
 }
 
 // U7: the doctor's bell opens and shows rows.
@@ -272,7 +292,9 @@ await step('U5b admin has NO bell (out of scope)', async () => {
 await step('U6 fresh user sees empty state ("You\'re all caught up.")', async () => {
   const suffix = Date.now();
   const email = `bell.ui.${suffix}@example.com`;
-  await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'PatientPass123!', name: 'Bell UI', contactDetails: email }) });
+  const regRes = await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'PatientPass123!', name: 'Bell UI', contactDetails: email }) });
+  const reg = await regRes.json();
+  if (reg.userId) reclaim.trackUser(reg.userId, email);
   await loginAs(email, 'PatientPass123!');
   await openBell();
   const text = await evaluate(`(() => { const el = Array.from(document.querySelectorAll('[role="menu"] p')).map(p => p.textContent||'').join(' | '); return el; })()`);
@@ -282,22 +304,12 @@ await step('U6 fresh user sees empty state ("You\'re all caught up.")', async ()
 
 console.log(results.join('\n'));
 
-// Reclaim every slot this run created, so the harness is idempotent in its
-// effect on the database. Reported per-slot rather than as an attempt count: an
-// earlier version logged "reclaimed 2" while both DELETEs were 409ing, which
-// looked like success and hid the leak.
-let reclaimed = 0;
-const reclaimFailures = [];
-for (const { token, slotId } of createdSlots) {
-  const outcome = await releaseSlot(token, slotId);
-  if (outcome.deleted) reclaimed += 1;
-  else reclaimFailures.push(`${slotId} -> HTTP ${outcome.status}${outcome.hadAppointment ? ' (had appointment)' : ''}`);
-}
-console.log(`\nreclaimed ${reclaimed}/${createdSlots.length} harness-created slot(s)`);
-if (reclaimFailures.length) {
-  console.log(`WARNING: ${reclaimFailures.length} slot(s) not reclaimed (DB will drift):`);
-  for (const f of reclaimFailures) console.log(`  ${f}`);
-}
+// Reclaim everything this run created. The reclaimer deletes by id and reports a
+// per-item outcome, so this can no longer claim success while leaking — which is
+// what the previous block did: it printed "reclaimed 2/2 slots" while two users,
+// two appointments and eight notifications drifted the database.
+await reclaim.run('success path');
+
 const failedChecks = results.filter((r) => r.startsWith('FAIL')).length;
 ws.close();
 chrome.kill('SIGKILL');
