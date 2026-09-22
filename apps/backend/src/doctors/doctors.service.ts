@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AppointmentStatus, ApprovalStatus } from '@prisma/client';
+import { AppointmentStatus, ApprovalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateDoctorProfileDto } from './dto/update-doctor-profile.dto';
 import { CreateAvailabilityDto } from './dto/create-availability.dto';
@@ -60,7 +60,7 @@ export class DoctorsService {
    */
   async discover(opts: { specialization?: string; available?: boolean }) {
     const now = new Date();
-    const where: any = { approvalStatus: ApprovalStatus.APPROVED };
+    const where: Prisma.DoctorProfileWhereInput = { approvalStatus: ApprovalStatus.APPROVED };
     if (opts.specialization) {
       where.specialization = { equals: opts.specialization, mode: 'insensitive' };
     }

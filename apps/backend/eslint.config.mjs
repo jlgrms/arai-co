@@ -3,4 +3,15 @@
 // (setting one without type-checked rules only produces TS program errors).
 import rootConfig from '../../eslint.config.mjs';
 
-export default [...rootConfig];
+export default [
+  ...rootConfig,
+  {
+    // Test specs build loose mocks/fixtures for Prisma + Nest internals; the
+    // `any` escape hatch is standard and intentional there. Production code
+    // (`src/**` excluding specs) still forbids `any`.
+    files: ['**/*.spec.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+];

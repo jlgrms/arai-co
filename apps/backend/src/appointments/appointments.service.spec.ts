@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { AppointmentStatus } from '@prisma/client';
 import { AppointmentsService } from './appointments.service';
 

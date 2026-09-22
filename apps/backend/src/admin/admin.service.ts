@@ -7,6 +7,7 @@ import {
   AccountState,
   ApprovalStatus,
   AppointmentStatus,
+  Prisma,
   Role,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,7 +54,7 @@ export class AdminService {
    * Admin accounts are excluded — this module manages patient/doctor accounts.
    */
   async listUsers(opts: { role?: Role; accountState?: AccountState; q?: string }) {
-    const where: any = { role: { in: [Role.PATIENT, Role.DOCTOR] } };
+    const where: Prisma.UserWhereInput = { role: { in: [Role.PATIENT, Role.DOCTOR] } };
     if (opts.role) where.role = opts.role;
     if (opts.accountState) where.accountState = opts.accountState;
     if (opts.q) {
@@ -113,7 +114,7 @@ export class AdminService {
   // ---- 2. Doctor profile review ------------------------------------------------
 
   async listDoctors(opts: { approvalStatus?: ApprovalStatus; q?: string }) {
-    const where: any = {};
+    const where: Prisma.DoctorProfileWhereInput = {};
     if (opts.approvalStatus) where.approvalStatus = opts.approvalStatus;
     if (opts.q) {
       where.OR = [
@@ -141,7 +142,7 @@ export class AdminService {
     });
     if (!existing) throw new NotFoundException('Doctor profile not found');
 
-    const data: any = {};
+    const data: Prisma.DoctorProfileUpdateInput = {};
     if (dto.approvalStatus !== undefined) data.approvalStatus = dto.approvalStatus;
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.biography !== undefined) data.biography = dto.biography;
@@ -252,8 +253,11 @@ export class AdminService {
         this.prisma.consultationSession.groupBy({ by: ['state'], _count: { _all: true } }),
       ]);
 
-    const toMap = (rows: any[], key: string) =>
-      rows.reduce((acc, r) => ({ ...acc, [r[key]]: r._count._all }), {});
+    const toMap = <K extends string>(
+      rows: ReadonlyArray<Record<K, string> & { _count: { _all: number } }>,
+      key: K,
+    ) =>
+      rows.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r[key]]: r._count._all }), {});
 
     return {
       users: {
