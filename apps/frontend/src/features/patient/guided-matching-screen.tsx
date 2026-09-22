@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api-client';
+import { consumePendingConcern } from '@/features/public/concern-handoff';
 import { parseMatchError, type ParsedMatchError } from './match-api-errors';
 import {
   buildMatchPath,
@@ -160,6 +161,26 @@ export function GuidedMatchingScreen() {
       if (requestId === requestIdRef.current) setLoading(false);
     }
   }, []);
+
+  /**
+   * Layer 9 handoff: if the user arrived from the public landing page's
+   * quick-book widget, their concern is waiting in sessionStorage. Fire the REAL
+   * match for it, once, and show the same result UI as a manually-typed query.
+   *
+   * `consumePendingConcern()` clears the key as it reads, which is what makes
+   * this safe against re-entry: a remount, a back-navigation, or a refresh will
+   * not silently re-run a stale query the user has already seen.
+   *
+   * This runs after mount rather than during it because `runMatch` is a
+   * `useCallback` that writes state; calling it in the render body would be a
+   * side effect during render.
+   */
+  React.useEffect(() => {
+    const pending = consumePendingConcern();
+    if (!pending) return;
+    setSymptom(pending);
+    void runMatch(pending);
+  }, [runMatch]);
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

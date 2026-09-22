@@ -373,3 +373,62 @@ server-side facets to replace the local filter. The frontend's wording ("filtere
 locally") and its `filterOptions`-from-loaded-data approach both assume a complete
 fetch, so both would change. The screen deliberately says "shown", not "found",
 which keeps that change honest whenever it happens.
+
+## 10. The landing widget's canned concerns are the nearest seeded phrase, not the right one
+
+**Status:** fixed to the point of working (Layer 9); the *precision* is owed to a
+Layer 6/7 seed change.
+
+**What was wrong.** The quick-book widget on the public landing page offers the
+design's 7 Filipino body parts (Ulo, Lalamunan, Dibdib, Tiyan, Likod, Balat,
+Iba pa). The first implementation gave each part a natural Filipino concern —
+Ulo → `masakit ang ulo`, Tiyan → `masakit ang tiyan` — and sent that to
+`GET /doctors/match`.
+
+The seeded symptom→specialty table (`apps/backend/prisma/seed.ts`) is entirely
+**English**: `cough`, `chest pain`, `rash`, … `matchSymptomToSpecialties` does a
+normalized contains-match in **both** directions, which tolerates noise ("chest"
+matches "chest pain") but **cannot cross languages**: no Filipino phrase contains
+an English one, or vice versa. Measured against the live API, all six canned
+paths returned **zero doctors**. The widget looked wired end to end — CTA
+enabled, handoff stored, auth redirect, match fired — and could not produce a
+single result. Only `Iba pa` (which takes typed input) ever worked.
+
+**What was done.** The labels keep the design's Filipino voice; the `concern`
+strings were changed to phrases that are actually in the seeded table:
+
+| Part | Sends | Resolves to |
+|---|---|---|
+| Ulo | `anxiety` | Psychiatry (1 doctor) |
+| Lalamunan | `cough` | General Medicine (2) |
+| Dibdib | `chest pain` | Cardiology (1) |
+| Tiyan | `fever` | General Medicine, Pediatrics (3) |
+| Likod | `fatigue` | General Medicine (2) |
+| Balat | `rash` | Dermatology (1) |
+| Iba pa | *(typed)* | — |
+
+**What is still owed.** These are the *nearest available* seeded phrases, not
+clinically correct mappings. The seed has no entry for "headache" or "stomach
+ache", so **`Ulo` ("head") sends `anxiety` and `Tiyan` ("stomach") sends
+`fever`**. A visitor tapping Ulo is shown a psychiatrist. `Balat`→dermatology,
+`Dibdib`→cardiology and `Lalamunan`→respiratory are honest; Ulo and Tiyan are
+stretches that land in roughly the right area by accident.
+
+**Why it was not fixed properly.** Doing it right means adding symptom rows to
+the seed (`headache` → General Medicine/Neurology, `stomach ache` →
+Gastroenterology, …), which is a Layer 6/7 data change requiring a reseed and a
+re-verification of the earlier layers. Out of scope for a frontend-only layer.
+
+**Why it shipped this far.** R10–R14 of the Layer 9 harness all drive the widget
+with **typed free text**, the one path that cannot dead-end because the user
+supplies the words. R13 explicitly accepts an empty match as a valid outcome —
+correct for free text, wrong for a canned chip — and nothing ever submitted a
+canned concern. Every assertion passed while all six buttons were dead. This is
+the same "assertion matches the wrong thing" trap as item 7.
+
+**Guards added.** `body-parts.test.ts` asserts every canned concern is drawn from
+the seeded vocabulary and rejects the Filipino phrasing that caused this;
+`R16` in `scripts/evidence-layer9-landing.mjs` clicks each of the six real
+buttons, carries the concern through auth, and asserts it resolves to >0 doctors
+against the live API. Both were verified to FAIL when the original phrasing is
+reintroduced.

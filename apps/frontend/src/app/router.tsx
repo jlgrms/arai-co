@@ -10,8 +10,8 @@ import {
 } from '@/features/auth/auth-screens';
 import {
   NotFoundPlaceholder,
-  PublicHomePlaceholder,
 } from '@/features/public/public-screens';
+import { LandingScreen } from '@/features/public/landing-screen';
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { DoctorProfileScreen } from '@/features/doctor/doctor-profile-screen';
 import { DoctorScheduleScreen } from '@/features/doctor/doctor-schedule-screen';
@@ -61,7 +61,7 @@ function AppShellWithOutlet() {
  */
 export const router = createBrowserRouter([
   // --- Public surface ---
-  { path: '/', element: <PublicHomePlaceholder /> },
+  { path: '/', element: <LandingScreen /> },
   { path: '/login', element: <LoginScreen /> },
   { path: '/register', element: <RegisterChooserScreen /> },
   { path: '/register/patient', element: <PatientRegisterScreen /> },
