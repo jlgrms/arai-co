@@ -30,3 +30,6 @@ apps/backend/prisma/migrations/dev.db*
 
 # Docker
 *.pid
+
+# Scratch / temp output (agent + manual patch files land here)
+tmp/
