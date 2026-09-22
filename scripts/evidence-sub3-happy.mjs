@@ -1,11 +1,67 @@
 // Sub-item 3 happy-path + localStorage evidence (real Chrome via CDP).
-import { spawn } from 'node:child_process';
+//
+// FIXTURE DISCIPLINE (DEFERRED item 1): this harness registers a throwaway
+// patient AND a throwaway doctor, and previously leaked both. It now tracks the
+// ids returned by registration and reclaims them on every exit path. Only ids
+// captured from this run's own register calls are ever deleted.
+import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createReclaimer } from './lib/reclaim.mjs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9223;
 const BASE = 'http://localhost:5173';
 const stamp = Date.now();
+
+// Fixture reclamation. The register response is FLAT — `{ accessToken, userId,
+// role }` — not `{ user: { id } }`. Reading the wrong field yields undefined and
+// the tracker silently no-ops, which would leak while reporting clean.
+const reclaim = createReclaimer({ label: 'sub3-happy' });
+
+/**
+ * Captures the fixture id for cleanup WITHOUT creating the account.
+ *
+ * The obvious approach — pre-register over the API to read the id — does not
+ * work here: the step under test registers the SAME email through the UI
+ * afterwards, so the pre-registration consumes the address, the UI registration
+ * is refused as a duplicate, and the harness silently stops testing registration
+ * at all. (It still reported PASS, because the old pass-condition never checked
+ * the path — see `expectRegistered` below. Caught by diffing against the
+ * pre-change run, which landed on /patient/discover.)
+ *
+ * Instead the id is read back FROM THE DATABASE by the email this run just
+ * generated. That is still "only what this run created": the email carries the
+ * run's `stamp`, so the lookup cannot match another run's or a seeded account.
+ */
+function captureFixtureByEmail(email) {
+  const res = spawnSync(
+    'docker',
+    [
+      'exec', 'telehealth-postgres', 'psql', '-U', 'telehealth', '-d', 'telehealth',
+      '-t', '-A', '-c', `SELECT id FROM "User" WHERE email = '${email.replace(/'/g, "''")}';`,
+    ],
+    { encoding: 'utf8' },
+  );
+  const id = (res.stdout || '').trim();
+  if (id) reclaim.trackUser(id, email);
+  return id || null;
+}
+
+/**
+ * Asserts a registration step actually registered.
+ *
+ * The original step returned `path=... tokenPresent=...` and PASSED regardless,
+ * so a completely failed registration was reported as a pass. That is the same
+ * vacuous-assertion defect as DEFERRED item 10 (R17 passed while the widget was
+ * broken). Registration is only verified if the user left the register route AND
+ * a token was stored.
+ */
+function expectRegistered(stepName, { path, token }) {
+  if (path.startsWith('/register')) {
+    throw new Error(`${stepName}: still on ${path} — registration did not complete`);
+  }
+  if (!token) throw new Error(`${stepName}: no access token stored after registration`);
+}
 
 const chrome = spawn(
   CHROME,
@@ -69,6 +125,8 @@ await step('patient register happy -> redirect + localStorage', async () => {
   const path = await evaluate('location.pathname');
   const tok = await evaluate(`localStorage.getItem('aray.accessToken')`);
   const user = await evaluate(`localStorage.getItem('aray.authUser')`);
+  expectRegistered('patient register', { path, token: tok });
+  captureFixtureByEmail(`happy.patient.${stamp}@example.com`);
   return `path=${path} tokenPresent=${Boolean(tok)} user=${user}`;
 });
 
@@ -85,6 +143,8 @@ await step('doctor register happy -> redirect + localStorage', async () => {
   const path = await evaluate('location.pathname');
   const tok = await evaluate(`localStorage.getItem('aray.accessToken')`);
   const user = await evaluate(`localStorage.getItem('aray.authUser')`);
+  expectRegistered('doctor register', { path, token: tok });
+  captureFixtureByEmail(`happy.doctor.${stamp}@example.com`);
   return `path=${path} tokenPresent=${Boolean(tok)} user=${user}`;
 });
 
@@ -115,4 +175,12 @@ await step('session persists across hard reload', async () => {
 console.log(results.join('\n'));
 ws.close();
 chrome.kill('SIGKILL');
-process.exit(0);
+await reclaim.run('success path');
+
+// A leaked throwaway account here is exactly what DEFERRED item 1 is about, so
+// fail loudly rather than exit 0 over a leak.
+const cleanup = reclaim.ids();
+if (cleanup.users.length === 0) {
+  console.log('WARNING: no fixture ids were captured — the harness may have leaked its registrations');
+}
+process.exit(results.some((r) => r.startsWith('FAIL')) ? 1 : 0);
