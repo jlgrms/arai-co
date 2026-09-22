@@ -29,6 +29,7 @@ import { MedicalRecordsScreen } from '@/features/patient/medical-records-screen'
 import { AdminUsersScreen } from '@/features/admin/admin-users-screen';
 import { AdminDoctorsScreen } from '@/features/admin/admin-doctors-screen';
 import { AdminAppointmentsScreen } from '@/features/admin/admin-appointments-screen';
+import { AdminDashboardScreen } from '@/features/admin/admin-dashboard-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -163,13 +164,10 @@ export const router = createBrowserRouter([
         element: <AppShellWithOutlet />,
         children: [
           {
+            // The admin LANDING page (HOME_BY_ROLE.ADMIN, nav item marked
+            // `end`), so it carries the loading and error states.
             path: '/admin',
-            element: (
-              <PlaceholderPage
-                title="Dashboard"
-                description="Operational counts across users, doctors, and appointments."
-              />
-            ),
+            element: <AdminDashboardScreen />,
           },
           {
             path: '/admin/users',

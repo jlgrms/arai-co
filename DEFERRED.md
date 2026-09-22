@@ -193,11 +193,19 @@ A fix is forward-only; no scope was agreed for it.
 Verification is DOM/behavioural only. Layout, spacing, colour, and overflow are
 unverified — PNGs cannot be read back for review. **Re-raised at Layer 8
 sub-item 2 (Flag 7) and confirmed by the stakeholder as deferred to the Layer 8
-close-out visual pass.** This gap is now three layers deep (Layers 6, 7, 8), and
+close-out visual pass.** This gap is now four layers deep (Layers 6, 7, 8), and
 the doctor-review screen adds a composition — status chips plus inline per-row
 actions plus a modal edit form — that DOM assertions cannot validate at all. The
 appointment-oversight screen (sub-item 3) adds a second: a six-column table with
-stacked badges per cell and a destructive row action.
+stacked badges per cell and a destructive row action. The operational dashboard
+(sub-item 4) adds a third and the most layout-sensitive one so far: a two-column
+responsive card grid whose tiles wrap on flex, with a headline total right-aligned
+against a long description — exactly the arrangement where an assertion proves
+the numbers are present and says nothing about whether they fit.
+
+**This entry is due at the end of Layer 8.** Sub-item 4 was the last screen in
+the layer to add a new composition, so the close-out visual pass should now cover
+all four admin screens plus the four layers of accumulated debt.
 
 ## 6. Inconsistent mutation-response shapes across admin endpoints
 
@@ -230,3 +238,48 @@ remains, and any future caller of this endpoint can trip the same wire.
 (and to the returned-from-idempotent-branch `findUnique`, which has the same
 omission) so both admin appointment endpoints return one shape. That would let
 `CancelledAppointmentRow` and the merge helper be deleted.
+
+## 7. Harness pattern split: zero-fixture vs reclaim-by-id — RECORD ONLY
+
+**Status:** informational. Not debt, not work owed. Recorded so the inconsistency
+is not re-derived as a defect.
+
+**What changed.** `scripts/evidence-layer8-sub4-admin-dashboard.mjs` is the first
+harness in the repo that creates **no fixtures at all**. It is a read-only
+verification of `GET /admin/dashboard`, so it has no mutation to exercise, no
+reclaimer, no `process.on('exit')` hook, and deliberately **no `l8s4%` entry in
+`db-clean-harness-users.sh`** — there is nothing to reclaim, and adding a prefix
+for a harness that cannot leak would misdescribe it.
+
+This is the second distinct harness discipline in the tree, alongside the
+reclaim-by-user-id pattern (item 3) and the residue-everything pattern (item 1):
+
+| Pattern | Example | Cleanup |
+| --- | --- | --- |
+| Residue everything | `evidence-layer6-sub2-discover.mjs` | none — leaks by design (item 1) |
+| Reclaim by captured user id | `evidence-layer8-sub2-admin-doctors.mjs` | `process.on('exit')` + SIGINT, SQL delete by id |
+| Zero-fixture | `evidence-layer8-sub4-admin-dashboard.mjs` | n/a — creates nothing |
+
+**Why it matters for review.** A reviewer comparing harnesses will notice sub-item
+4 lacks a cleanup block and that no `l8s4%` prefix exists. That is correct, not an
+oversight. The rule the three patterns share: **a harness may only remove what
+that run created** — which reduces to "removes nothing" when it creates nothing.
+
+**The matching assertion rule.** Because the dashboard has no fixture to pin the
+data, every assertion is an **equality against a simultaneous live API read**
+rather than a hardcoded number. Asserting `users == 11` would be asserting the
+fixture database and would pass on a screen rendering a forgotten literal; R2/R3/R4
+instead compare the DOM against a `GET /admin/dashboard` taken at the same moment,
+so the assertions stay true as the data changes. Also recorded as the design note
+in that harness's header.
+
+**One harness bug found and fixed during this run (for the record).** R10 initially
+failed because the assertion regex enumerated guessed failure wordings
+(`failed to fetch|network|…`) and the screen rendered the api-client's actual text,
+`"Cannot reach the server. Is the backend running?"`. The **screen was correct and
+the assertion was wrong** — it was testing my recollection rather than the DOM. R10
+now asserts the error alert's structure (present, has a title, has a non-empty body
+with no raw `undefined`/`null` leak) instead of a guessed sentence. Worth noting as
+the general trap: an assertion on invented copy fails for the wrong reason and can
+be mistaken for a product defect.
+

@@ -25,6 +25,7 @@ import type {
   CancelAppointmentInput,
   CancelledAppointmentRow,
 } from './admin-appointment-types';
+import type { AdminDashboard } from './admin-dashboard-types';
 
 /**
  * List/search patient and doctor accounts.
@@ -133,4 +134,27 @@ export function cancelAdminAppointment(
     `/admin/appointments/${appointmentId}/cancel`,
     input,
   );
+}
+
+/**
+ * Aggregate counts for the operational dashboard (Layer 8 sub-item 4).
+ *
+ * `GET /admin/dashboard` takes NO parameters and is not paginated — it is four
+ * counts plus four groupBys over the whole database. It is therefore cheap and
+ * is refetched on demand rather than cached across navigations; each admin
+ * session lands on this screen (HOME_BY_ROLE.ADMIN = '/admin'), so a stale
+ * cached payload would be the first thing every admin sees.
+ *
+ * The payload's `by*` maps OMIT zero-count keys — Prisma's groupBy never emits a
+ * zero. Do not read these maps directly; pass them through countOf() in
+ * admin-dashboard-types, which coalesces the missing key to 0. See that module
+ * for why an `undefined` bucket is a rendering bug, not a cosmetic one.
+ *
+ * The shape is returned untouched: no bucket normalisation happens here, because
+ * the raw payload is what the zero-fixture equality harness compares against the
+ * live endpoint. Any coalescing done in this wrapper would make that comparison
+ * tautological.
+ */
+export function fetchDashboard(signal?: AbortSignal): Promise<AdminDashboard> {
+  return api.get<AdminDashboard>('/admin/dashboard', { signal });
 }
