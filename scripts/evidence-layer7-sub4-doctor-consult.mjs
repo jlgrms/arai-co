@@ -4,7 +4,9 @@
 //
 // This sub-item WRITES and CHANGES STATE, so this harness creates its own
 // throwaway patient + appointment and drives that session — it never touches the
-// seeded demo sessions. It cancels its appointment at the end.
+// seeded demo sessions. It reclaims BOTH on every exit path: the patient account
+// (cascading its appointment and session) and the private slot it created on the
+// seeded Dr. Okafor.
 //
 // Checks:
 //   C1  /doctor/consultations renders the real list, not the placeholder
@@ -24,11 +26,17 @@
 //   C15 zero uncaught exceptions
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createReclaimer } from './lib/reclaim.mjs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9240;
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3000';
+
+// FIXTURE DISCIPLINE (DEFERRED item 1): the throwaway patient was registered on
+// every run and never deleted. Both fixtures — the account and the private slot —
+// are tracked here and reclaimed on every exit path.
+const reclaim = createReclaimer({ label: 'l7s4-consult' });
 
 const chrome = spawn(
   CHROME,
@@ -114,6 +122,10 @@ const PT_PASS = 'Password123!';
 const reg = await (await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: PT_EMAIL, password: PT_PASS, name: 'UI L7S4 Harness' }) })).json();
 assert(reg.accessToken, 'fixture: patient registration failed');
 const ptToken = reg.accessToken;
+// The register response is FLAT (`{ accessToken, userId, role }`), not
+// `{ user: { id } }`; reading the wrong field yields undefined and the tracker
+// silently no-ops, leaking the account while reporting clean.
+reclaim.trackUser(reg.userId, PT_EMAIL);
 
 const okafor = (await jget('/doctors', ptToken)).body.find((d) => d.name === 'Dr. Amara Okafor');
 assert(okafor, 'fixture: Dr. Okafor not discoverable');
@@ -137,6 +149,9 @@ const slotRes = await fetch(`${API}/doctors/me/availability`, {
 const slot = await slotRes.json();
 assert(slotRes.status === 201 || slotRes.status === 200, `fixture: slot creation failed ${slotRes.status} ${JSON.stringify(slot)}`);
 const OWN_SLOT_ID = slot.id;
+// Tracked explicitly: the slot is owned by the SEEDED Dr. Okafor, so deleting
+// the throwaway patient does not cascade it away.
+reclaim.trackSlot(OWN_SLOT_ID);
 
 const bookRes = await fetch(`${API}/appointments`, { method: 'POST', headers: H(ptToken), body: JSON.stringify({ availabilityId: OWN_SLOT_ID }) });
 const appt = await bookRes.json();
@@ -370,30 +385,30 @@ await step('C15 zero uncaught exceptions', async () => {
 console.log(results.join('\n'));
 const failed = results.filter((r) => r.startsWith('FAIL')).length;
 
-// Release the harness's OWN fixtures. The appointment is deliberately left
-// COMPLETED (C11/C13 assert that), so it must be cancelled before its slot can
-// be deleted -- the DELETE is 409-gated while a live appointment holds the FK.
-// Reported per item, because counting attempts hides a 409 that reclaimed
-// nothing.
-let reclaimed = 0;
-let attempted = 0;
-const cancelRes = await fetch(`${API}/appointments/${appt.id}/cancel`, {
-  method: 'PATCH',
-  headers: H(ptToken),
-});
-attempted += 1;
-if ([200, 201, 409].includes(cancelRes.status)) reclaimed += 1;
-const delRes = await fetch(`${API}/doctors/me/availability/${OWN_SLOT_ID}`, {
-  method: 'DELETE',
-  headers: H(dtToken),
-});
-attempted += 1;
-if ([200, 204].includes(delRes.status)) reclaimed += 1;
-
+// Release the harness's OWN fixtures.
+//
+// TWO defects are fixed here, both of the "reports attempts, not successes"
+// family:
+//
+//  1. A 409 from the cancel was counted as reclaimed, on the premise that
+//     "already cancelled" and "refused" are the same thing. They are not:
+//     PATCH /appointments/:id/cancel returns 409 when the cancel is REFUSED
+//     because the slot is still consumed (`assertSlotNotConsumed`), so a 409
+//     means the appointment is STILL LIVE and still holding its slot — the
+//     opposite of reclaimed. (Same defect as DEFERRED item 2.)
+//
+//  2. Cancelling first could never succeed anyway: C11 leaves the appointment
+//     COMPLETED, and a completed appointment is precisely what the cancel route
+//     refuses. So the sequence was "attempt a cancel that is always refused,
+//     count it as success, then try to delete the slot the live appointment is
+//     holding".
+//
+// The fix deletes the rows outright and lets the DELETE row count decide.
+// Deleting the throwaway patient cascades its appointment and session away; the
+// slot belongs to the SEEDED Dr. Okafor, so it is removed explicitly.
 console.log(`\n${results.length - failed}/${results.length} passed`);
-console.log(
-  `session ${SESSION_ID} left COMPLETED; appointment ${appt.id} cancelled on exit; ` +
-    `harness-owned slot released ${reclaimed}/${attempted} (throwaway account ${PT_EMAIL})`,
-);
-chrome.kill();
+console.log(`session ${SESSION_ID} was left COMPLETED by the run (asserted by C11/C12).`);
+console.log('fixture reclamation (per item, decided by the DELETE row count):');
+chrome.kill('SIGKILL');
+await reclaim.run('success path');
 process.exit(failed ? 1 : 0);
