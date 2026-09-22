@@ -26,6 +26,7 @@ import type {
   CancelledAppointmentRow,
 } from './admin-appointment-types';
 import type { AdminDashboard } from './admin-dashboard-types';
+import type { AuditLogRow } from './admin-audit-types';
 
 /**
  * List/search patient and doctor accounts.
@@ -157,4 +158,26 @@ export function cancelAdminAppointment(
  */
 export function fetchDashboard(signal?: AbortSignal): Promise<AdminDashboard> {
   return api.get<AdminDashboard>('/admin/dashboard', { signal });
+}
+
+/**
+ * Read the append-only audit log (Layer 8 sub-item 5).
+ *
+ * `GET /admin/audit-logs` takes NO parameters, is NOT paginated, and has NO
+ * server-side filtering — it is `findMany({ orderBy: { timestamp: 'desc' },
+ * include: { adminUser: { select: { id, email } } } })` over the whole log. Every
+ * screen load therefore transfers every row ever written (44 at the time of
+ * writing). The screen's filters narrow the loaded array LOCALLY and say "shown",
+ * not "found", so the wording does not describe a query that never happened.
+ *
+ * NEWEST FIRST is the server's ordering and is NOT re-sorted client-side —
+ * re-sorting would conceal a server ordering regression behind a client fix.
+ * isNewestFirst() in admin-audit-types verifies the payload arrived as promised.
+ *
+ * `affectedRecordId` points at a record that may since have been DELETED. There
+ * is no lookup here and there must be none on the screen: a UUID that no longer
+ * resolves would render as a dead link presented as navigation.
+ */
+export function fetchAuditLogs(signal?: AbortSignal): Promise<AuditLogRow[]> {
+  return api.get<AuditLogRow[]>('/admin/audit-logs', { signal });
 }

@@ -1,7 +1,6 @@
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/app-shell';
-import { PlaceholderPage } from '@/components/layout/placeholder-page';
 import StyleGuidePage from '@/dev/style-guide';
 import {
   LoginScreen,
@@ -30,6 +29,7 @@ import { AdminUsersScreen } from '@/features/admin/admin-users-screen';
 import { AdminDoctorsScreen } from '@/features/admin/admin-doctors-screen';
 import { AdminAppointmentsScreen } from '@/features/admin/admin-appointments-screen';
 import { AdminDashboardScreen } from '@/features/admin/admin-dashboard-screen';
+import { AdminAuditScreen } from '@/features/admin/admin-audit-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -46,6 +46,11 @@ function AppShellWithOutlet() {
 
 /**
  * Route tree.
+ *
+ * Every route in this tree now renders a real delivered screen; the last
+ * PlaceholderPage was retired by Layer 8 sub-item 5 (the admin audit log). The
+ * component is retained in components/layout for future use but is no longer
+ * referenced here.
  *
  * Public routes render standalone (no shell, no bell). Each role's routes are
  * nested under a single <RequireRole> guard that owns the persistent
@@ -182,13 +187,11 @@ export const router = createBrowserRouter([
             element: <AdminAppointmentsScreen />,
           },
           {
+            // Append-only record of admin actions. Read-only: nothing on this
+            // screen mutates anything, and its record ids are never linked
+            // (they may point at since-deleted rows).
             path: '/admin/audit',
-            element: (
-              <PlaceholderPage
-                title="Audit Log"
-                description="Recorded admin actions with timestamps and reasons."
-              />
-            ),
+            element: <AdminAuditScreen />,
           },
         ],
       },

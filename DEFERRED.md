@@ -181,12 +181,29 @@ so the eight pre-existing leakers adopt the same reclaim-on-exit pattern, and
 decide whether audit rows pointing at deleted profiles should be filtered out of
 the Audit Log view.
 
-## 4. Notification timestamps render in UTC
+## 4. Timestamps render in UTC
 
 `Notification` is a frozen leaf table with only a `string message`, so the server
 has no user locale and messages embed UTC times (e.g. "8 Jun 2028, 06:03 UTC").
 Notifications are append-only, so pre-fix rows keep their ISO strings forever.
 A fix is forward-only; no scope was agreed for it.
+
+**Extended at Layer 8 sub-item 5.** The admin audit log renders every timestamp in
+UTC, with an explicit ` UTC` suffix on each cell and a "times shown in UTC" note
+under the table. This is a deliberate **consistency** choice rather than a fix:
+the app has no user-locale handling anywhere, so localising only the audit log
+would create a second convention instead of resolving the first. Two notes for
+whoever closes this out:
+
+- An audit log is the one place where the choice is defensible long-term. A
+  security record is arguably *better* pinned to UTC, because localising it makes
+  two viewers disagree about when an action happened — a forensic problem, not a
+  cosmetic one. Consider exempting this screen from the eventual fix.
+- `formatAuditTimestamp` uses a literal month table, NOT
+  `toLocaleString({ month: 'short' })`. Node's ICU renders September as `"Sept"`
+  in `en-GB`, which is neither the 3-letter form the rest of the app uses nor
+  stable across ICU versions. Found by a failing unit test. Do not "simplify"
+  this back to `toLocaleString`.
 
 ## 5. No screen has ever been visually inspected
 
@@ -203,9 +220,20 @@ responsive card grid whose tiles wrap on flex, with a headline total right-align
 against a long description — exactly the arrangement where an assertion proves
 the numbers are present and says nothing about whether they fit.
 
-**This entry is due at the end of Layer 8.** Sub-item 4 was the last screen in
-the layer to add a new composition, so the close-out visual pass should now cover
-all four admin screens plus the four layers of accumulated debt.
+**This entry is DUE NOW.** Sub-item 5 was the last screen in Layer 8, and every
+route in the app now renders a real screen — the last `PlaceholderPage` was
+retired with the audit log. So the close-out visual pass is unblocked and has a
+fixed, known target: **eight compositions across four layers.**
+
+- Layer 6 — discover, guided matching, booking, consultation, records
+- Layer 7 — doctor profile, schedule, patient records, consultation workspace
+- Layer 8 — users, doctor review, appointments, dashboard, **audit log**
+
+The audit log (sub-item 5) adds a fourth Layer-8 composition and the widest table
+in the app: five columns, two of which stack a label over a raw monospace value,
+and a Reason column that must wrap rather than overflow. It also renders a
+44-row table with no pagination, so vertical length is untested by any assertion
+here.
 
 ## 6. Inconsistent mutation-response shapes across admin endpoints
 
@@ -283,3 +311,65 @@ with no raw `undefined`/`null` leak) instead of a guessed sentence. Worth noting
 the general trap: an assertion on invented copy fails for the wrong reason and can
 be mistaken for a product defect.
 
+
+## 8. The audit log has one administrator, so multi-admin behaviour is untested
+
+**Status:** coverage gap, not a defect. No fix owed — recorded so the weakness in
+this sub-item's evidence is not mistaken for strength.
+
+**What is unproven.** Every one of the 44 rows in the live log was written by
+`admin@example.com`. The seed creates exactly one ADMIN account. Consequences for
+`scripts/evidence-layer8-sub5-admin-audit.mjs`:
+
+- **R8 is vacuous.** It selects the admin facet and asserts the rendered set
+  matches that admin's rows — but since there is only one admin, the facet
+  matches all 44 rows. The assertion therefore cannot distinguish "the admin
+  facet works" from "the admin facet does nothing". It proves the control is
+  wired, not that it discriminates.
+- **`filterOptions().admins` is never exercised with more than one entry**, so its
+  dedup-and-sort-by-email path is covered only by unit tests, not end-to-end.
+
+The action and record-type facets (R9/R10) are **not** affected — those have 3
+values each and do discriminate; R9 even asserts the chosen facet matched more
+than one row so it cannot pass on a single-row match.
+
+**Why it was not fixed.** Creating a second admin would mean either seeding one
+(changing the documented baseline of User 11) or having a harness register one,
+which for a read-only sub-item would be a fixture created solely to make an
+assertion non-vacuous. Jean's Flag 8 decision for this sub-item family was to
+refuse exactly that. The gap is recorded rather than papered over.
+
+**What it would take.** Either seed a second ADMIN account (updating the baseline
+and every harness that asserts 11 users), or accept that multi-admin grouping is
+verified by unit test only. Note this is also the seam where a real deployment
+would diverge: with several admins, the `administrators have acted` line under the
+table and the admin facet both become load-bearing.
+
+## 9. The audit log is unbounded — no pagination, and it grows forever
+
+**Status:** accepted for Layer 8 (read-only scope); a real limit worth naming.
+
+**What is owed.** `GET /admin/audit-logs` is `findMany` with **no `take`, no
+`skip`, and no filters**, so the response grows without bound. The log is
+append-only, so nothing removes rows. Every admin action on every admin screen
+adds one. The screen fetches the whole log on mount and filters locally.
+
+**Current scale.** 44 rows — trivially fine.
+
+**Why it matters.** Unlike the other four admin screens, whose row counts are
+bounded by the number of patients/doctors/appointments, this table's size is a
+function of *how much administration has ever happened*. It is the only screen in
+the app that is guaranteed to degrade with normal use rather than with data
+growth. At tens of thousands of rows the payload becomes the bottleneck and the
+local "filter" scans the full array on every keystroke-free interaction.
+
+**Why it was not fixed.** The endpoint pre-exists from Layer 4 sub-item 9 and
+sub-item 5 is frontend-only by decision. Adding `take`/`skip` or a server-side
+filter changes the backend contract and would need its own evidence run — the same
+reasoning as item 6.
+
+**What it would take.** Add cursor or offset pagination to the endpoint, plus
+server-side facets to replace the local filter. The frontend's wording ("filtered
+locally") and its `filterOptions`-from-loaded-data approach both assume a complete
+fetch, so both would change. The screen deliberately says "shown", not "found",
+which keeps that change honest whenever it happens.
