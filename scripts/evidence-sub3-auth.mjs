@@ -163,16 +163,18 @@ await step('login 401 invalid creds', async () => {
   return readAlerts();
 });
 
-// NOTE (verification gap — see DEFERRED items 1/3): `alex.kim@example.com` is a
-// seeded ACTIVE patient, so this step does NOT observe a 403 — the login
-// succeeds. Every seeded account is ACTIVE, so the 403 branch is unreachable
-// until a PENDING/REJECTED fixture is seeded (DEFERRED item 3). The step is left
-// to fail visibly rather than be rewritten to assert the success it actually
-// gets; asserting the wrong outcome is the defect this file was just fixed for.
+// FIXED (DEFERRED item 12): this step previously used `alex.kim@example.com`, a
+// seeded ACTIVE patient, so the login SUCCEEDED and no 403 was ever observed —
+// the step passed on an empty alert string and its leftover session then broke
+// five later steps. Every seeded account was ACTIVE, so the branch was genuinely
+// unreachable. The seed now includes `suspended.patient@example.com` in
+// SUSPENDED state, and this step targets it, so the 403 is reached for real.
+// The assertion below still fails loudly if the account is not rejected, so this
+// cannot regress back to a vacuous pass.
 await step('login 403 account unavailable', async () => {
   await logoutToNeutral();
   await navigate('/login');
-  await evaluate(setValue('#login-email', 'alex.kim@example.com'));
+  await evaluate(setValue('#login-email', 'suspended.patient@example.com'));
   await evaluate(setValue('#login-password', 'PatientPass123!'));
   await evaluate(`document.querySelector('form button[type=submit]').click()`);
   await sleep(1200);
@@ -181,7 +183,17 @@ await step('login 403 account unavailable', async () => {
   // Fail if the account was NOT rejected: landing anywhere other than /login
   // means login succeeded, so no 403 evidence exists.
   if (!path.startsWith('/login')) {
-    throw new Error(`expected 403 (stay on /login) but landed on ${path} — fixture is ACTIVE, no 403 observed`);
+    throw new Error(
+      `expected 403 (stay on /login) but landed on ${path} — suspended fixture is missing or ACTIVE, no 403 observed`,
+    );
+  }
+  // A bare "stayed on /login" is not sufficient: a network failure or a client
+  // crash also stays put. Require the 403 alert the screen renders for
+  // statusCode 403 ("Account unavailable"), so the evidence is the real branch.
+  if (!/account unavailable/i.test(alerts)) {
+    throw new Error(
+      `stayed on /login but no 403 alert rendered (alerts=${JSON.stringify(alerts)}) — not evidence of the 403 branch`,
+    );
   }
   return `${alerts} || path=${path}`;
 });
