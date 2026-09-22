@@ -199,7 +199,11 @@ export class ConsultationsService {
 
     const sessions = await this.prisma.consultationSession.findMany({
       where: { appointment: { doctorProfileId: d.id, patientProfileId } },
-      include: { consultationNotes: true, prescriptions: true, appointment: true },
+      include: {
+        consultationNotes: true,
+        prescriptions: true,
+        appointment: { include: { doctorProfile: true, patientProfile: true } },
+      },
       orderBy: { appointment: { scheduledAt: 'desc' } },
     });
 
@@ -208,7 +212,18 @@ export class ConsultationsService {
       return {
         sessionId: s.id,
         state: s.state,
+        // Both timestamps are exposed so ONE client type can render either
+        // endpoint: the doctor sees an UPCOMING session (scheduledAt, no
+        // completedAt yet) and a past one (both set), while the patient only
+        // ever sees COMPLETED rows where scheduledAt is the session date.
         scheduledAt: s.appointment.scheduledAt,
+        completedAt: s.completedAt,
+        doctorName: s.appointment.doctorProfile?.name ?? null,
+        specialization: s.appointment.doctorProfile?.specialization ?? null,
+        // The counterparty for a doctor is the patient, exactly as
+        // doctorName/specialization are the counterparty for a patient. A
+        // doctor browsing records needs to know WHOSE records these are.
+        patientName: s.appointment.patientProfile?.name ?? null,
         // Upcoming/SCHEDULED sessions have no clinical content to expose yet.
         notes: readable ? s.consultationNotes : [],
         prescriptions: readable ? s.prescriptions : [],

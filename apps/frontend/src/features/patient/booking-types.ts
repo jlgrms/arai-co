@@ -39,6 +39,11 @@ export type AppointmentStatus = 'BOOKED' | 'RESCHEDULED' | 'CANCELLED' | 'COMPLE
  * `consultationSession` is joined too, so a row can link into the consultation
  * workspace (sub-item 5). The workspace is keyed by SESSION id, which is a
  * different UUID from the appointment id and cannot be derived from it.
+ *
+ * `patientProfile` is joined for the doctor-side screens (Layer 7 sub-item 3) —
+ * it is the counterparty for a doctor, exactly as `doctorProfile` is for a
+ * patient. Both sides are always present in the payload, so one type serves both
+ * roles; each screen reads only its own counterparty.
  */
 export interface Appointment {
   id: string;
@@ -53,6 +58,10 @@ export interface Appointment {
     specialization: string;
     approvalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
   };
+  patientProfile: {
+    id: string;
+    name: string;
+  } | null;
   consultationSession: {
     id: string;
     state: 'SCHEDULED' | 'JOINED' | 'IN_PROGRESS' | 'COMPLETED';

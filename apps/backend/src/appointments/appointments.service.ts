@@ -48,9 +48,29 @@ const APPOINTMENT_DOCTOR_SELECT = {
 } as const;
 
 /**
+ * Patient identity projected onto every appointment read (Layer 7 sub-item 3).
+ *
+ * Mirror of APPOINTMENT_DOCTOR_SELECT for the other side of the relation. The
+ * appointment row only carries `patientProfileId`, but a doctor must be able to
+ * see WHO an appointment is with. It is also the only way a doctor obtains a
+ * `patientProfileId` to address GET /consultations/records/patient/:id — without
+ * this the doctor-side records view would be unreachable from the UI unless the
+ * UUID were already known (the same class of defect the session-id projection
+ * fixed on the patient side).
+ *
+ * `userId` is deliberately NOT projected: the client has no use for it and it
+ * would widen the surface for no reason.
+ */
+const APPOINTMENT_PATIENT_SELECT = {
+  id: true,
+  name: true,
+} as const;
+
+/**
  * Every appointment read includes:
- *   - the consulting doctor under `doctorProfile` (sub-item 4), and
- *   - the consultation session id under `consultationSession` (sub-item 5).
+ *   - the consulting doctor under `doctorProfile` (sub-item 4),
+ *   - the consultation session id under `consultationSession` (sub-item 5), and
+ *   - the patient under `patientProfile` (Layer 7 sub-item 3).
  *
  * The session id matters because the consultation workspace is addressed by
  * SESSION id, and session ids are distinct from appointment ids — a patient
@@ -58,10 +78,20 @@ const APPOINTMENT_DOCTOR_SELECT = {
  * consultation room would be to already know its UUID, so the workspace would be
  * unreachable from the UI. `book` has always returned the session; the read
  * paths now match it.
+ *
+ * Both sides of the relation are projected unconditionally rather than
+ * branching on the caller's role: the payload stays a single shape, so the
+ * patient and doctor screens can share one client type. Each caller only reads
+ * the counterparty it cares about (patient reads doctorProfile, doctor reads
+ * patientProfile); neither side is exposed to data it could not already see,
+ * since the row itself is already participant-scoped before it is returned.
  */
 const WITH_DOCTOR = {
   doctorProfile: {
     select: APPOINTMENT_DOCTOR_SELECT,
+  },
+  patientProfile: {
+    select: APPOINTMENT_PATIENT_SELECT,
   },
   consultationSession: {
     select: { id: true, state: true },
