@@ -36,10 +36,30 @@ export function canAccessRecords(
   return ALLOWED[action].has(state);
 }
 
-/** Human-readable reason for a rejected gate, for the 409 message. */
+/**
+ * Human-readable reason for a rejected gate, for the 409 message.
+ *
+ * The message is ROLE-AWARE. A single "records are not available to the patient
+ * until COMPLETED" string was previously returned for every non-write rejection,
+ * which told a DOCTOR something about the patient, and was wrong on its own
+ * terms: the doctor's read gate opens at IN_PROGRESS, not COMPLETED. A clinician
+ * refused a record mid-consultation was told to wait for a state change that is
+ * not actually required of them.
+ *
+ * The two read gates genuinely differ, so they get different sentences:
+ *   READ_PATIENT -> opens at COMPLETED (no half-written notes mid-consult)
+ *   READ_DOCTOR  -> opens at IN_PROGRESS (the treating doctor reads their own
+ *                   notes back DURING the encounter)
+ */
 export function recordGateMessage(state: ConsultationState, action: RecordAction): string {
-  if (action === 'WRITE') {
-    return `Cannot record notes or prescriptions while the session is ${state}`;
+  switch (action) {
+    case 'WRITE':
+      return `Cannot record notes or prescriptions while the session is ${state}`;
+    case 'READ_DOCTOR':
+      // Not "wait for COMPLETED" — for a doctor, IN_PROGRESS is enough, and the
+      // actionable next step is that the consultation has to start.
+      return `Consultation records are not available yet: this consultation has not started (the session is ${state}). Records can be read once it is in progress.`;
+    case 'READ_PATIENT':
+      return `Consultation records are not available to the patient until the session is COMPLETED`;
   }
-  return `Consultation records are not available to the patient until the session is COMPLETED`;
 }
