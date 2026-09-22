@@ -3,7 +3,6 @@ import { X } from 'lucide-react';
 
 import { NAV_BY_ROLE } from '@/app/nav';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { BrandLogo } from '@/components/brand/logo';
 import { useAuth } from '@/features/auth/auth-context';
 import { AppHeader } from './app-header';
