@@ -18,6 +18,8 @@ import { DoctorProfileScreen } from '@/features/doctor/doctor-profile-screen';
 import { DoctorScheduleScreen } from '@/features/doctor/doctor-schedule-screen';
 import { DoctorPatientsScreen } from '@/features/doctor/doctor-patients-screen';
 import { DoctorPatientRecordsScreen } from '@/features/doctor/doctor-patient-records-screen';
+import { DoctorConsultationsScreen } from '@/features/doctor/doctor-consultations-screen';
+import { DoctorConsultationWorkspaceScreen } from '@/features/doctor/doctor-consultation-workspace-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
@@ -131,12 +133,15 @@ export const router = createBrowserRouter([
           },
           {
             path: '/doctor/consultations',
-            element: (
-              <PlaceholderPage
-                title="Consultations"
-                description="Join sessions and record notes and prescriptions."
-              />
-            ),
+            element: <DoctorConsultationsScreen />,
+          },
+          {
+            // The consultation room for one session, doctor side. Keyed by
+            // SESSION id (not appointment id) — the two are different UUIDs. This
+            // is the only screen that can move a session to COMPLETED, since
+            // completing is DOCTOR-only on the server.
+            path: '/doctor/consultations/:sessionId',
+            element: <DoctorConsultationWorkspaceScreen />,
           },
           {
             path: '/doctor/profile',
