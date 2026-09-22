@@ -4,26 +4,63 @@ Running record of work that was deliberately postponed. Each entry says what is
 owed, why it was postponed, and what it would take — so it can be picked up
 without re-deriving the reasoning.
 
-## 1. Self-cleaning harnesses — DEFERRED to Layer 10 (Hardening & delivery)
+## 1. Self-cleaning harnesses — RESOLVED
 
-**Status:** deferred by explicit stakeholder decision (not dropped).
+**Status:** RESOLVED. All eight harnesses now reclaim what they create through
+`scripts/lib/reclaim.mjs`.
 
-**What is owed.** Eight harnesses register a throwaway account per run via
-`POST /auth/register/patient` and never delete it:
+**The fix.** `scripts/lib/reclaim.mjs` exports `createReclaimer({ label })`, which
+tracks users, appointments, availability slots and notifications **by id**, deletes
+them with SQL in dependency order, and reports a per-item outcome
+(`reclaimed` / `absent` / `failed`). It installs its own `process.on('exit')` and
+`SIGINT` hooks, so an uncaught throw or Ctrl-C still reclaims. Harnesses call
+`reclaim.run()` explicitly on the success path so the count appears in their own
+output.
 
-- `scripts/evidence-layer6-sub2-discover.mjs`
-- `scripts/evidence-layer6-sub3-matching.mjs`
-- `scripts/evidence-layer6-sub4-booking.mjs`
-- `scripts/evidence-layer7-sub4-doctor-consult.mjs`
-- `scripts/evidence-sub3-auth.mjs`
-- `scripts/evidence-sub3-happy.mjs`
-- `scripts/evidence-sub5-backend.mjs`
-- `scripts/evidence-sub5-bell-ui.mjs`
+The one rule, enforced by the helper's API: **a harness may only remove what that
+run created.** Nothing deletes by email pattern or date range.
 
-Commit `a513584` brought *slots* under the "put it back" rule but not accounts,
-so accounts accumulate. A second leak is that account-*reusing* harnesses book a
-fixture against the real seeded patient (Jordan) and cancel it, leaving a
-`CANCELLED` appointment row on a real account.
+**Measured result.** Running all eight in sequence now leaves the database at the
+exact pure-seed baseline after *every* run:
+
+```
+User=10 PatientProfile=3 DoctorProfile=6 Appointment=4
+ConsultationSession=4 Availability=31 Notification=5 SymptomSpecialtyMap=18
+```
+
+Reclaimed per run: sub3-happy 2/2, sub3-auth — (below), l6s2 1/1, l6s3 1/1,
+l6s4 5/5, l7s4 3/3, sub5-backend 5/5, sub5-bell-ui 10/10.
+
+**Bugs found in the migration — recorded because each was a silent-liar class.**
+
+1. **The helper's first version always claimed success.** It used
+   `DELETE ... RETURNING id` and treated non-empty stdout as success. Under
+   `-t -A`, psql emits the command tag `DELETE 0` for a zero-row delete, so stdout
+   is *never* empty and a no-op printed `reclaimed 1/1`. Fixed by parsing the row
+   count out of the command tag.
+2. **The register response is flat — `{ accessToken, userId, role }`, not
+   `{ user: { id } }`.** Reading `reg.user.id` yields `undefined`; the tracker's
+   `if (id)` guard silently no-ops, so a harness would leak while reporting clean.
+   The captured field is **`reg.userId`**.
+3. **`Notification` has no foreign key to `Appointment`.** `\d "Notification"`
+   shows only `Notification_userId_fkey`. Deleting an appointment therefore does
+   **not** remove its notifications, and booking against a *seeded* doctor leaves
+   rows on that doctor's feed forever. `trackNotification()` exists for this, and
+   `Notification` is deleted first in the plan. Found by watching the Notification
+   count drift 5 → 10 across a full-sequence run.
+4. **`evidence-sub3-auth.mjs` was already broken** before this work: its "403
+   account unavailable" step used a seeded **ACTIVE** patient, so the login
+   succeeded and the step passed on an empty alert string; the leftover session
+   then got every later step bounced by the auth guard, crashing 5 of 7 steps with
+   `Cannot read properties of null (reading 'tagName')` — while the harness exited
+   **0**. Steps now reset session state first, the 403 step asserts that a 403 was
+   actually observed, and the harness exits non-zero on any FAIL.
+5. **`evidence-sub5-bell-ui.mjs` reported `reclaimed 2/2 slots`** while leaving
+   User 10→12, Appointment 4→6, Notification 5→13. The slot-only count hid two
+   accounts, two `CANCELLED` appointments and eight notifications.
+
+The canonical harness pattern is now `scripts/lib/reclaim.mjs`; items 3 and 7
+describe the two legitimate variants (reclaim-by-captured-id and zero-fixture).
 
 **Why it matters.** `GET /admin/users` lists every PATIENT/DOCTOR account ordered
 `createdAt desc` and `GET /admin/appointments` lists everything ordered
@@ -31,18 +68,20 @@ fixture against the real seeded patient (Jordan) and cancel it, leaving a
 admin console (Layer 8) degrades into a wall of test junk — and a reviewer cannot
 tell a rendering fault from leftover noise.
 
-**Observed scale.** By the start of Layer 8 the database held 69 accounts, of
-which **58 were harness orphans (84%)**, plus 29 cancelled-appointment residue
-rows on seeded accounts and 10 sessions whose state contradicted their
+**Observed scale (before the fix).** By the start of Layer 8 the database held 69
+accounts, of which **58 were harness orphans (84%)**, plus 29 cancelled-appointment
+residue rows on seeded accounts and 10 sessions whose state contradicted their
 appointment.
 
-**What it would take.** Give each harness a cleanup path that runs on exit
-(including on failure): capture the account id at registration, then delete that
-user and any fixture appointment/slot it created. There is no user-DELETE
-endpoint in the API — only `Availability` has one — so harness clean-up must
-shell out to SQL (as `scripts/db-clean-harness-users.sh` does) or a delete
-endpoint must be added and justified. Clean-up must be **per-item and reported**,
-and must only delete what that run created.
+**What it took.** `scripts/lib/reclaim.mjs`, adopted by all eight harnesses. There
+is no user-DELETE endpoint in the API — only `Availability` has one — so cleanup
+shells out to SQL (as `scripts/db-clean-harness-users.sh` does). Clean-up is
+**per-item and reported**, and only deletes what that run created.
+
+**Residual risk (accepted).** `kill -9` / `SIGKILL` does not run exit hooks, so a
+hard kill still leaks. A fresh run of the same harness reclaims its own new
+fixtures but cannot know about the older orphan; `db-clean-harness-users.sh` is
+the recovery path for that case.
 
 ## Interim mitigation in place
 
@@ -307,14 +346,18 @@ reclaim-by-user-id pattern (item 3) and the residue-everything pattern (item 1):
 
 | Pattern | Example | Cleanup |
 | --- | --- | --- |
-| Residue everything | `evidence-layer6-sub2-discover.mjs` | none — leaks by design (item 1) |
-| Reclaim by captured user id | `evidence-layer8-sub2-admin-doctors.mjs` | `process.on('exit')` + SIGINT, SQL delete by id |
+| Reclaim via shared helper | all eight item-1 harnesses | `scripts/lib/reclaim.mjs` |
+| Reclaim by captured user id (pre-helper, retained) | `evidence-layer8-sub2-admin-doctors.mjs` | `process.on('exit')` + SIGINT, SQL delete by id |
 | Zero-fixture | `evidence-layer8-sub4-admin-dashboard.mjs` | n/a — creates nothing |
 
 **Why it matters for review.** A reviewer comparing harnesses will notice sub-item
 4 lacks a cleanup block and that no `l8s4%` prefix exists. That is correct, not an
 oversight. The rule the three patterns share: **a harness may only remove what
 that run created** — which reduces to "removes nothing" when it creates nothing.
+
+**Superseded note.** The former "residue everything" row (`l6s2` and friends,
+which leaked by design) is gone — those harnesses now use the shared helper. See
+item 1.
 
 **The matching assertion rule.** Because the dashboard has no fixture to pin the
 data, every assertion is an **equality against a simultaneous live API read**
@@ -471,3 +514,75 @@ is reintroduced, with exit 1 and a message naming the mis-wired chip.
 (14 → 18 rows); it does not change User/PatientProfile/DoctorProfile/Appointment/
 ConsultationSession/Availability. A reseed performed during this work also
 returned the database to pure seed state — see the baseline section below.
+
+## 11. Patients are seeded with zero notifications, so the bell's read paths are unproven
+
+**Status:** OPEN — a fixture gap found during the harness work, needs a decision.
+
+**What is unproven.** The seed gives **no patient any notifications**. Counts by
+user on a fresh seed:
+
+```
+dr.okafor@example.com   5
+every other account     0
+```
+
+The only account with a populated feed is a doctor. Consequences for
+`scripts/evidence-sub5-backend.mjs`, which exercises the notification contract as
+`jordan.lee@example.com`:
+
+- Section 2 `patient has >=1 notification` is **false by construction**.
+- Section 3 (ordering) and section 4 (unread count) therefore pass **vacuously** —
+  an empty array is trivially sorted and has a valid count of 0.
+- Section 5 (mark-read flips the row) cannot run: there is no row to mark.
+- Section 6 (cross-user 403) cannot run: it needs a real row belonging to someone
+  else, and it would otherwise PATCH `/notifications/undefined/read` and return
+  400, which is *not* evidence of the ownership rule.
+
+Sections 8 (generation) and 9 (empty state) create their own data and **do** pass
+genuinely. Section 7 (404) also passes genuinely.
+
+**How this surfaced.** The harness used to *crash* at section 5 —
+`TypeError: Cannot read properties of undefined (reading 'id')` — which aborted
+the run, so sections 6–9 never executed at all. The harness appeared to exist and
+its coverage was assumed. It now reports the gap as named FAILs and continues.
+Verified pre-existing by running the pristine `HEAD` version, which crashes at the
+same line.
+
+**Why it was not fixed here.** Choosing which account demonstrates the bell is a
+product-evidence decision (the harness could be repointed at `dr.okafor` to go
+green), and doing that unattended could disguise the fact that **patients receive
+no seeded notifications** — which may itself be a seeding defect worth attention.
+`db-clean-harness-users.sh` note: the harness is still *clean* — it reclaims
+5/5 fixtures and leaves Notification at baseline.
+
+**What it would take.** Decide whether patients should be seeded with
+notifications (changing the documented baseline and any harness asserting it), or
+whether the harness should authenticate as the account that has them. Either way
+the four sections above need a genuine fixture, not a vacuous one.
+
+## 12. `evidence-sub3-auth.mjs` cannot exercise the 403 login branch
+
+**Status:** OPEN — same root cause as item 3 (no non-ACTIVE account is seeded).
+
+**What is unproven.** `auth.service.ts` rejects a login with **403** when the
+credentials are valid but `accountState !== ACTIVE`. **Every seeded account is
+ACTIVE** (`SELECT email, role, "accountState" FROM "User"` returns ACTIVE for all
+10), so the branch cannot be reached by any harness.
+
+**How this surfaced.** The step was passing **vacuously** — it logged in as the
+seeded ACTIVE patient `alex.kim@example.com`, the login *succeeded*, and the step
+returned an empty alert string, which its pass-condition never checked. The
+leftover session then broke five subsequent steps (see item 1, bug 4). The step
+now asserts that a 403 was actually observed and **FAILS** with
+`expected 403 (stay on /login) but landed on /patient/discover — fixture is
+ACTIVE, no 403 observed`.
+
+**What it would take.** Seed a non-ACTIVE account (e.g. a `PENDING` or `REJECTED`
+doctor) — the same fixture item 3 identifies as missing — or have the harness
+register a doctor and have an admin reject it before attempting the login. Until
+then this step is expected to be red, and it is red for a **real** reason.
+
+**Note.** `l8s2-admin-doctors.mjs` already registers a `PENDING` doctor and
+reclaims it, so the machinery for creating a non-ACTIVE account exists; the
+missing piece is a decision about seeding one.
