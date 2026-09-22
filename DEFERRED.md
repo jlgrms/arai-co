@@ -132,14 +132,21 @@ and Notification reads 0.
 
 | Table | Count |
 | --- | --- |
-| User | 10 (1 admin, 6 doctors, 3 seed patients) |
-| PatientProfile | 3 |
+| User | 11 (1 admin, 6 doctors, 3 seed patients, 1 SUSPENDED demo patient) |
+| PatientProfile | 4 (3 + the SUSPENDED demo patient) |
 | DoctorProfile | 6 |
 | Appointment | 5 (3 COMPLETED history + 1 upcoming BOOKED + 1 notification-fixture BOOKED, all Jordan's) |
 | ConsultationSession | 5 |
 | Availability | 32 (31 scheduled + 1 far-future notification-fixture slot, booked) |
 | Notification | 2 (`jordan.lee` + `dr.patel`, from the fixture booking; 0 if the backend was down at seed time) |
 | SymptomSpecialtyMap | 18 (14 original + `headache`, `migraine`, `sore throat`, `stomach ache`) |
+
+**UPDATED (item 12 resolution):** the seed also creates
+`suspended.patient@example.com` (PATIENT, SUSPENDED, `PatientPass123!`) so the
+login-403 branch is reachable. That moved User 10 → 11 and PatientProfile 3 → 4.
+Anything asserting a hard account count must now expect **11**. Note
+`GET /admin/users` excludes ADMIN, so it returns **10** on a fresh seed — the
+harnesses that care compare against a live API read rather than a literal.
 
 **Two baselines, and the difference matters.** `john@test.com` and its three
 appointments are hand-made data that the cleaner deliberately never matches, so
@@ -716,26 +723,95 @@ assertion is about the transition, not the initial value.
 
 ## 12. `evidence-sub3-auth.mjs` cannot exercise the 403 login branch
 
-**Status:** OPEN — same root cause as item 3 (no non-ACTIVE account is seeded).
+**Status:** RESOLVED (stakeholder decision: extend the seed, do not repoint the
+harness). The seed now includes a SUSPENDED account.
 
-**What is unproven.** `auth.service.ts` rejects a login with **403** when the
-credentials are valid but `accountState !== ACTIVE`. **Every seeded account is
-ACTIVE** (`SELECT email, role, "accountState" FROM "User"` returns ACTIVE for all
-10), so the branch cannot be reached by any harness.
+**What was unproven.** `auth.service.ts` rejects a login with **403** when the
+credentials are valid but `accountState !== ACTIVE`. **Every seeded account was
+ACTIVE** (`SELECT email, role, "accountState" FROM "User"` returned ACTIVE for
+all 10), so the branch was unreachable by any harness.
 
 **How this surfaced.** The step was passing **vacuously** — it logged in as the
 seeded ACTIVE patient `alex.kim@example.com`, the login *succeeded*, and the step
 returned an empty alert string, which its pass-condition never checked. The
 leftover session then broke five subsequent steps (see item 1, bug 4). The step
-now asserts that a 403 was actually observed and **FAILS** with
+then (before this fix) asserted that a 403 was observed and failed with
 `expected 403 (stay on /login) but landed on /patient/discover — fixture is
 ACTIVE, no 403 observed`.
 
-**What it would take.** Seed a non-ACTIVE account (e.g. a `PENDING` or `REJECTED`
-doctor) — the same fixture item 3 identifies as missing — or have the harness
-register a doctor and have an admin reject it before attempting the login. Until
-then this step is expected to be red, and it is red for a **real** reason.
+**Resolution — a seeded SUSPENDED account, not a harness-created one.**
+`prisma/seed.ts` now creates `suspended.patient@example.com` (PATIENT,
+`SUSPENDED`, password `PatientPass123!`) with a `stateReason`. A PATIENT was
+chosen so the auth step's login shape is unchanged; the 403 logic keys off
+`accountState`, not `role`, so a suspended patient exercises the same code path a
+suspended doctor would. `stateReason` is set because the admin console renders
+the reason inline — an empty cell there would look like a rendering bug when it
+is actually missing fixture data. Seeded rather than harness-created because a
+login fixture must exist *before* any harness runs and must survive independent
+of any run.
 
-**Note.** `l8s2-admin-doctors.mjs` already registers a `PENDING` doctor and
-reclaims it, so the machinery for creating a non-ACTIVE account exists; the
-missing piece is a decision about seeding one.
+**Verified at the API level first, before touching the harness:**
+
+```
+POST /auth/login {"email":"suspended.patient@example.com","password":"PatientPass123!"}
+-> HTTP 403, body: {"statusCode":403,"error":"Forbidden","message":"Account is suspended",...}
+```
+
+**The harness assertion was also tightened.** Staying on `/login` is not
+sufficient evidence — a network failure or client crash also stays put. The step
+now additionally requires the alert the screen renders for `statusCode === 403`
+("Account unavailable"), so the evidence is the real branch.
+
+**Negative control (proves the assertion is not vacuous).** Temporarily reverting
+the email to `alex.kim@example.com` makes the step **FAIL with exit 1**:
+
+```
+FAIL  login 403 account unavailable -> expected 403 (stay on /login) but landed
+      on /patient/discover — suspended fixture is missing or ACTIVE, no 403 observed
+```
+
+Restoring the suspended email returns it to green. So the step discriminates.
+
+**Measured result — two consecutive runs, both exit 0, 7/7 steps PASS:**
+
+```
+PASS  login 403 account unavailable  ->  Account unavailable
+Account is suspended || path=/login
+```
+
+That is the server's own 403 message rendered through the real login form. DB
+drift after each run: none.
+
+**Scope conflict this surfaced, and how it was resolved.** Adding a permanently
+SUSPENDED account broke `evidence-layer8-sub1-admin-users.mjs` **U7**, which
+asserted the SUSPENDED filter returns *exactly 1* row — a hidden dependency on
+the seed having no suspended account. Observed directly:
+
+```
+FAIL  U7 status filter narrows to the suspended account — expected exactly the
+      fixture suspended, got 2 rows
+```
+
+U7 now compares the rendered rows against the set the **API itself** reports as
+SUSPENDED, and additionally asserts the fixture row is present and that the
+arrange step took effect. U8 keeps its `=== 1` because it composes with a unique
+per-run stamp, which narrows to this run's fixture regardless of other suspended
+accounts; a comment now says why. The header note was updated to match.
+
+Recorded honestly: the API-derived comparison is a **weaker** claim than
+"exactly 1" in one narrow sense — it no longer by itself proves the filter
+*excludes* non-suspended accounts. That is covered by U2 (full unfiltered list
+compared to the API by id) and by U8's contradiction check (DOCTOR + SUSPENDED +
+stamp → 0 rows). No coverage was dropped; it moved to the steps that can prove it
+without coupling to seed state. Landed as two separate commits so each is
+reviewable on its own.
+
+**Baseline change (intended):** User 10 → 11, PatientProfile 3 → 4. See the
+baseline section above.
+
+**Measured after both fixes:** `evidence-layer8-sub1-admin-users.mjs` exit 0,
+**16 passed, 0 failed**, with U7 reporting
+`SUSPENDED filter returned exactly the 2 suspended account(s) the API reports
+(incl. the fixture)` and U2/U9 showing 12 rows (11 seeded + the run's fixture),
+ids identical to the API.
+
