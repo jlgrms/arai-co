@@ -18,6 +18,7 @@
 //   R14 the concern is SINGLE-USE — a refresh does not re-fire it
 //   R15 no uncaught exceptions during the run
 //   R16 a CANNED body-part concern resolves to real doctors (not a dead end)
+//   R17 the canned concerns route to a CLINICALLY SENSIBLE specialty
 //
 // WHY R16 EXISTS: R10-R14 exercise the widget with TYPED free text, which is the
 // one path that cannot dead-end — the user supplies the words. The canned
@@ -29,6 +30,14 @@
 // vocabulary is English ("fever"), so all six chips matched zero doctors while
 // every assertion still passed. R16 closes that hole by driving the actual
 // button the visitor would tap.
+//
+// WHY R17 EXISTS: R16 alone is not enough. A second, subtler version of the same
+// bug passed R16 cleanly — the chips were pointed at the nearest seeded phrase,
+// so "Ulo" ("head") sent "anxiety" and showed a PSYCHIATRIST, and "Tiyan"
+// ("stomach") sent "fever". Those matched real doctors, so R16 was satisfied.
+// "Returns results" and "returns the RIGHT results" are different claims, and
+// only the second one is what the visitor was promised. R17 asserts the
+// resolved SPECIALTY, not just the doctor count.
 //
 // WHY R2 MATTERS MOST: the whole design of this layer rests on the landing page
 // being unauthenticated. If it ever started calling /doctors/match directly the
@@ -466,6 +475,91 @@ await step('R16 a CANNED body-part concern resolves to real doctors, not a dead 
     );
     seen.push(`${label}→${stored} (${truth.doctors.length})`);
   }
+
+  return seen.join(', ');
+});
+
+// The specialty each body part must resolve to. Derived from what a primary-care
+// clinician would actually do with the complaint, then checked against the five
+// specializations that have doctors (Cardiology, Dermatology, General Medicine
+// x2, Pediatrics, Psychiatry). headache / sore throat / stomach ache are not
+// specialist referrals, so all three are General Medicine.
+const EXPECTED_SPECIALTY = {
+  Ulo: 'General Medicine', // headache
+  Lalamunan: 'General Medicine', // sore throat
+  Dibdib: 'Cardiology', // chest pain
+  Tiyan: 'General Medicine', // stomach ache
+  Likod: 'General Medicine', // fatigue
+  Balat: 'Dermatology', // rash
+};
+
+// The concern each part must send. Pinned so a future edit cannot quietly
+// re-point a chip at a different (even if still non-empty) symptom.
+const EXPECTED_CONCERN = {
+  Ulo: 'headache',
+  Lalamunan: 'sore throat',
+  Dibdib: 'chest pain',
+  Tiyan: 'stomach ache',
+  Likod: 'fatigue',
+  Balat: 'rash',
+};
+
+await step('R17 the canned concerns route to a CLINICALLY SENSIBLE specialty', async () => {
+  const seen = [];
+  for (const [label, symptom] of Object.entries(EXPECTED_CONCERN)) {
+    // FIRST: what does the WIDGET actually send? This must be read from the
+    // running page, not assumed from EXPECTED_CONCERN. An earlier version of
+    // this step queried the API with its own hardcoded phrases and cheerfully
+    // passed while the widget was sending something else entirely — it was
+    // testing the seed table, not the product.
+    await evaluate('sessionStorage.clear()');
+    await navigate('/', 2400);
+    const clicked = await evaluate(clickPart(label));
+    assert(clicked === 'OK', `could not click the "${label}" body part`);
+    await sleep(180);
+    await evaluate(`document.querySelector('button[type=submit]').click()`);
+    await sleep(1400);
+    const sent = await evaluate('sessionStorage.getItem("arai.pendingConcern")');
+    assert(sent, `"${label}" stored no concern — cannot verify what it sends`);
+    assert(
+      sent === symptom,
+      `"${label}" actually sends "${sent}", but this body part must send "${symptom}" — the chip is wired to the wrong symptom`,
+    );
+
+    const truth = await apiMatch(sent);
+    const want = EXPECTED_SPECIALTY[label];
+
+    // The concern must be one the visitor would recognise for that body part.
+    assert(
+      SEEDED_SYMPTOMS.includes(sent),
+      `"${label}" sends "${sent}", which is not in the seeded table`,
+    );
+    // And it must resolve to the right specialty, not merely to somebody.
+    assert(
+      truth.matchedSpecialties.includes(want),
+      `"${label}" ("${sent}") resolved to ${JSON.stringify(truth.matchedSpecialties)}, expected ${want}`,
+    );
+    // Every reported specialty must have doctors, or the UI groups under a
+    // specialty and then renders an empty group.
+    assert(
+      truth.doctors.length > 0,
+      `"${label}" resolves to ${want} but that specialty has no doctors`,
+    );
+    seen.push(`${label}→${sent}→${want} (${truth.doctors.length})`);
+  }
+
+  // The specific regression: Ulo must never reach Psychiatry and Tiyan must
+  // never reach a fever/pediatric routing.
+  const ulo = await apiMatch('headache');
+  assert(
+    !ulo.matchedSpecialties.includes('Psychiatry'),
+    'Ulo still routes to Psychiatry — the "nearest available phrase" bug is back',
+  );
+  const tiyan = await apiMatch('stomach ache');
+  assert(
+    !tiyan.matchedSpecialties.includes('Pediatrics'),
+    'Tiyan routes to Pediatrics — a stomach ache is not a paediatric referral',
+  );
 
   return seen.join(', ');
 });

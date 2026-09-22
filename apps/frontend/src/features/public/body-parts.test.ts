@@ -4,7 +4,7 @@ import { BODY_PARTS, isReady, resolveConcern } from './body-parts';
 
 /**
  * The seeded symptom→specialty vocabulary, mirrored from
- * apps/backend/prisma/seed.ts (the `symptomOrConcern` rows) and the 14 options
+ * apps/backend/prisma/seed.ts (the `symptomOrConcern` rows) and the options
  * returned by GET /doctors/match/options.
  *
  * This is duplicated ON PURPOSE. The bug it guards against shipped once already:
@@ -12,6 +12,10 @@ import { BODY_PARTS, isReady, resolveConcern } from './body-parts';
  * seeded table is English ("anxiety"), so all six paths resolved to zero doctors
  * and the widget silently matched nothing. A frontend unit test cannot call the
  * real API, but it CAN assert the concerns are drawn from the right vocabulary.
+ *
+ * `headache`, `migraine`, `sore throat` and `stomach ache` were added to the
+ * seed specifically so Ulo / Lalamunan / Tiyan have a clinically sensible
+ * target instead of borrowing the nearest English word.
  *
  * If the seed gains or renames symptoms, update this list — and re-run
  * `scripts/evidence-layer9-landing.mjs`, which re-checks against the live API
@@ -27,10 +31,14 @@ const SEEDED_VOCABULARY = [
   'eczema',
   'fatigue',
   'fever',
+  'headache',
   'high blood pressure',
   'insomnia',
+  'migraine',
   'palpitations',
   'rash',
+  'sore throat',
+  'stomach ache',
   'vaccination',
 ];
 
@@ -91,13 +99,36 @@ describe('BODY_PARTS', () => {
     }
   });
 
+  it('sends each part a clinically sensible concern, not a nearest-available substitute', () => {
+    // Regression test for the imprecise mapping. Ulo ("head") once sent
+    // "anxiety" and Tiyan ("stomach") once sent "fever" — real seeded phrases,
+    // so they resolved to doctors, but the WRONG doctors: tapping "head" showed
+    // a psychiatrist. These four are pinned because they are the ones whose
+    // meaning is genuinely load-bearing.
+    const byId = Object.fromEntries(BODY_PARTS.map((p) => [p.id, p.concern]));
+    expect(byId['ulo']).toBe('headache');
+    expect(byId['lalamunan']).toBe('sore throat');
+    expect(byId['tiyan']).toBe('stomach ache');
+    expect(byId['dibdib']).toBe('chest pain');
+    expect(byId['balat']).toBe('rash');
+  });
+
+  it('does not route a symptom through an unrelated specialty', () => {
+    // Ulo and Tiyan must never send a psychiatric or fever concern again.
+    const byId = Object.fromEntries(BODY_PARTS.map((p) => [p.id, p.concern]));
+    expect(byId['ulo']).not.toBe('anxiety');
+    expect(byId['ulo']).not.toBe('depression');
+    expect(byId['tiyan']).not.toBe('fever');
+    expect(byId['tiyan']).not.toBe('child fever');
+  });
+
   it('keeps the concern vocabulary free of the Filipino phrasing that broke it', () => {
-    // Guards the specific regression: natural Filipino phrases ("sakit ng …",
-    // "masakit ang …") can never match the English seeded table, because the
-    // matcher's contains-check cannot cross languages.
+    // Guards the specific regression: every concern must be an English seeded
+    // phrase. The Filipino body-part LABELS are fine — only the concerns are
+    // required to be English, because the seeded table is.
     for (const part of BODY_PARTS) {
       if (!part.concern) continue;
-      expect(part.concern).not.toMatch(/^(sakit|masakit|problema|pantal)\b/);
+      expect(part.concern).toMatch(/^[a-z ]+$/);
     }
   });
 });

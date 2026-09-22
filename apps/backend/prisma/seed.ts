@@ -164,6 +164,19 @@ async function main(): Promise<void> {
   }
 
   // --- symptom -> specialty mapping (deterministic matching table, Layer 4) ---
+  //
+  // NOTE ON SPECIALTIES: only five specializations have doctors behind them
+  // (Cardiology, Dermatology, General Medicine x2, Pediatrics, Psychiatry).
+  // A symptom mapped to anything else would resolve to a specialty with ZERO
+  // doctors — a different dead end, not a fix. So `headache` and `stomach ache`
+  // both route to General Medicine, which is where a primary-care physician
+  // would in fact see them.
+  //
+  // `headache` / `migraine` / `stomach ache` / `sore throat` (Layer 9) exist so
+  // the landing page's Ulo / Lalamunan / Tiyan chips resolve to a real doctor
+  // rather than the nearest-available phrase. Verified disjoint from every other
+  // row: matchSymptomToSpecialties does a contains-match in BOTH directions, so
+  // a phrase that was a substring of another row would silently over-match.
   const symptomMap = [
     { symptomOrConcern: 'chest pain', specialty: 'Cardiology' },
     { symptomOrConcern: 'palpitations', specialty: 'Cardiology' },
@@ -174,6 +187,10 @@ async function main(): Promise<void> {
     { symptomOrConcern: 'fever', specialty: 'General Medicine' },
     { symptomOrConcern: 'cough', specialty: 'General Medicine' },
     { symptomOrConcern: 'fatigue', specialty: 'General Medicine' },
+    { symptomOrConcern: 'headache', specialty: 'General Medicine' },
+    { symptomOrConcern: 'migraine', specialty: 'General Medicine' },
+    { symptomOrConcern: 'stomach ache', specialty: 'General Medicine' },
+    { symptomOrConcern: 'sore throat', specialty: 'General Medicine' },
     { symptomOrConcern: 'child fever', specialty: 'Pediatrics' },
     { symptomOrConcern: 'vaccination', specialty: 'Pediatrics' },
     { symptomOrConcern: 'anxiety', specialty: 'Psychiatry' },

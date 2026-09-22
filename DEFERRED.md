@@ -78,6 +78,29 @@ Session states after clean: BOOKED+SCHEDULED (1, Sam↔Okafor), BOOKED+JOINED (1
 seeded live Patel↔Jordan), BOOKED+IN_PROGRESS (1, Jordan↔Silva),
 CANCELLED+SCHEDULED (1, john's), COMPLETED+COMPLETED (3, seeded).
 
+## Documented baseline (pure seed state — no `john@test.com` residue)
+
+A reseed during Layer 9 returned the database to its canonical seed content. This
+is what `pnpm --filter backend prisma:seed` produces with nothing else added, and
+it is the correct baseline to compare against *immediately after a reseed*:
+
+| Table | Count |
+| --- | --- |
+| User | 10 (1 admin, 6 doctors, 3 seed patients) |
+| PatientProfile | 3 |
+| DoctorProfile | 6 |
+| Appointment | 4 (3 COMPLETED history + 1 upcoming BOOKED, all Jordan's) |
+| ConsultationSession | 4 |
+| Availability | 31 |
+| SymptomSpecialtyMap | 18 (14 original + `headache`, `migraine`, `sore throat`, `stomach ache`) |
+
+**Two baselines, and the difference matters.** `john@test.com` and its three
+appointments are hand-made data that the cleaner deliberately never matches, so
+they exist in the *post-clean* baseline but not in a fresh seed. Any harness that
+asserts a hard count must say which of the two it expects. A reseed silently
+drops the post-clean baseline to the seed baseline — which is what happened here,
+and why User reads 10 rather than 11.
+
 ## 2. `evidence-cancelled-join.mjs` over-reports its cleanup — DEFERRED to Layer 10
 
 **Status:** found during Layer 8 sub-item 1; deferred with the rest of the
@@ -374,61 +397,77 @@ locally") and its `filterOptions`-from-loaded-data approach both assume a comple
 fetch, so both would change. The screen deliberately says "shown", not "found",
 which keeps that change honest whenever it happens.
 
-## 10. The landing widget's canned concerns are the nearest seeded phrase, not the right one
+## 10. The landing widget's canned concerns — RESOLVED, kept for the reasoning
 
-**Status:** fixed to the point of working (Layer 9); the *precision* is owed to a
-Layer 6/7 seed change.
+**Status:** RESOLVED (Layer 9 follow-up commit). Kept because the *verification*
+lesson is still live: the bug passed three separate rounds of green tests.
 
 **What was wrong.** The quick-book widget on the public landing page offers the
 design's 7 Filipino body parts (Ulo, Lalamunan, Dibdib, Tiyan, Likod, Balat,
 Iba pa). The first implementation gave each part a natural Filipino concern —
-Ulo → `masakit ang ulo`, Tiyan → `masakit ang tiyan` — and sent that to
-`GET /doctors/match`.
+Ulo → `masakit ang ulo`, Tiyan → `masakit ang tiyan`. The seeded
+symptom→specialty table is entirely **English**, and
+`matchSymptomToSpecialties` does a normalized contains-match in **both**
+directions, which tolerates noise ("chest" matches "chest pain") but **cannot
+cross languages**. All six canned paths returned **zero doctors** while the
+widget looked wired end to end.
 
-The seeded symptom→specialty table (`apps/backend/prisma/seed.ts`) is entirely
-**English**: `cough`, `chest pain`, `rash`, … `matchSymptomToSpecialties` does a
-normalized contains-match in **both** directions, which tolerates noise ("chest"
-matches "chest pain") but **cannot cross languages**: no Filipino phrase contains
-an English one, or vice versa. Measured against the live API, all six canned
-paths returned **zero doctors**. The widget looked wired end to end — CTA
-enabled, handoff stored, auth redirect, match fired — and could not produce a
-single result. Only `Iba pa` (which takes typed input) ever worked.
+**The second bug, which is the interesting one.** The first fix pointed each chip
+at the *nearest phrase the table happened to contain*: Ulo → `anxiety`,
+Tiyan → `fever`. That made the numbers non-zero, so the harness went green — but
+tapping **"Ulo" ("head") showed a PSYCHIATRIST** and "Tiyan" ("stomach") returned
+paediatricians. "Returns results" and "returns the *right* results" are different
+claims. Only the second is what the button promised.
 
-**What was done.** The labels keep the design's Filipino voice; the `concern`
-strings were changed to phrases that are actually in the seeded table:
+**Resolution.** Four symptom rows were added to the seed — `headache`,
+`migraine`, `sore throat`, `stomach ache` — and the chips re-pointed at them:
 
-| Part | Sends | Resolves to |
-|---|---|---|
-| Ulo | `anxiety` | Psychiatry (1 doctor) |
-| Lalamunan | `cough` | General Medicine (2) |
-| Dibdib | `chest pain` | Cardiology (1) |
-| Tiyan | `fever` | General Medicine, Pediatrics (3) |
-| Likod | `fatigue` | General Medicine (2) |
-| Balat | `rash` | Dermatology (1) |
-| Iba pa | *(typed)* | — |
+| Part | Sends | Resolves to | Doctors |
+|---|---|---|---|
+| Ulo | `headache` | General Medicine | 2 |
+| Lalamunan | `sore throat` | General Medicine | 2 |
+| Dibdib | `chest pain` | Cardiology | 1 |
+| Tiyan | `stomach ache` | General Medicine | 2 |
+| Likod | `fatigue` | General Medicine | 2 |
+| Balat | `rash` | Dermatology | 1 |
+| Iba pa | *(typed)* | — | — |
 
-**What is still owed.** These are the *nearest available* seeded phrases, not
-clinically correct mappings. The seed has no entry for "headache" or "stomach
-ache", so **`Ulo` ("head") sends `anxiety` and `Tiyan` ("stomach") sends
-`fever`**. A visitor tapping Ulo is shown a psychiatrist. `Balat`→dermatology,
-`Dibdib`→cardiology and `Lalamunan`→respiratory are honest; Ulo and Tiyan are
-stretches that land in roughly the right area by accident.
+No new doctors were added. Only five specializations have doctors
+(Cardiology, Dermatology, General Medicine ×2, Pediatrics, Psychiatry); mapping
+Ulo→Neurology or Tiyan→Gastroenterology would have resolved to a specialty with
+**zero doctors** — a different dead end, not a fix. Headache and stomach ache are
+primary-care complaints, so General Medicine is both clinically reasonable and
+actually staffed. The four new phrases were checked to be substring-disjoint from
+every existing row, since a phrase contained in another row would silently
+over-match.
 
-**Why it was not fixed properly.** Doing it right means adding symptom rows to
-the seed (`headache` → General Medicine/Neurology, `stomach ache` →
-Gastroenterology, …), which is a Layer 6/7 data change requiring a reseed and a
-re-verification of the earlier layers. Out of scope for a frontend-only layer.
+**The verification lesson — three green runs over a broken widget.** This took
+three attempts to catch, each pass satisfying the previous assertion:
 
-**Why it shipped this far.** R10–R14 of the Layer 9 harness all drive the widget
-with **typed free text**, the one path that cannot dead-end because the user
-supplies the words. R13 explicitly accepts an empty match as a valid outcome —
-correct for free text, wrong for a canned chip — and nothing ever submitted a
-canned concern. Every assertion passed while all six buttons were dead. This is
-the same "assertion matches the wrong thing" trap as item 7.
+1. **R10–R14 drove only typed free text** — the one path that cannot dead-end,
+   because the user supplies the words. Nothing ever submitted a canned chip.
+   R13 *explicitly accepts* an empty match as a valid outcome (correct for free
+   text, wrong for a canned chip), so it was satisfied by the failure.
+2. **R16** ("each canned chip resolves to >0 doctors") then passed on the
+   *second* bug, because `anxiety` and `fever` do return doctors. It only ever
+   asked whether results came back, never whether they were sensible.
+3. **R17, first version, passed while the widget was still broken.** It queried
+   the API with its **own hardcoded phrase list** rather than reading what the
+   widget actually sent — so it verified the seed table, not the product. This
+   was caught by deliberately reintroducing the bug and observing R17 stay green.
 
-**Guards added.** `body-parts.test.ts` asserts every canned concern is drawn from
-the seeded vocabulary and rejects the Filipino phrasing that caused this;
-`R16` in `scripts/evidence-layer9-landing.mjs` clicks each of the six real
-buttons, carries the concern through auth, and asserts it resolves to >0 doctors
-against the live API. Both were verified to FAIL when the original phrasing is
-reintroduced.
+R17 now reads the concern out of the running page (click the chip, submit, read
+`sessionStorage`) and only then asserts it is the expected symptom *and* the
+expected specialty. Both R16 and R17 were confirmed to FAIL when the regression
+is reintroduced, with exit 1 and a message naming the mis-wired chip.
+
+**Guards now in place.**
+- `body-parts.test.ts` pins the concern for each part, asserts every concern is
+  in the seeded vocabulary, and forbids the Ulo→anxiety / Tiyan→fever pair.
+- `R16` drives all six real buttons through auth and requires >0 doctors.
+- `R17` drives all six real buttons and requires the correct *specialty*.
+
+**Baseline note.** Adding four rows to `SymptomSpecialtyMap` changes that table
+(14 → 18 rows); it does not change User/PatientProfile/DoctorProfile/Appointment/
+ConsultationSession/Availability. A reseed performed during this work also
+returned the database to pure seed state — see the baseline section below.

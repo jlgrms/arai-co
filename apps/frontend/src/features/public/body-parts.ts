@@ -25,11 +25,13 @@
  * the labels keep the design's voice. Verified against the live API: each of the
  * six canned concerns below resolves to at least one specialty.
  *
- * KNOWN IMPRECISION: the seed has no entry for "headache" or "stomach ache", so
- * `Ulo` (head) borrows "anxiety" and `Tiyan` (stomach) borrows "fever". These
- * are the nearest available seeded phrases, not clinically accurate mappings —
- * a user tapping "Ulo" sees Psychiatry. Fixing that properly means adding
- * symptom rows to the seed, which is a Layer 6/7 change; see DEFERRED.md.
+ * The seed carries `headache`, `sore throat` and `stomach ache` explicitly for
+ * Ulo / Lalamunan / Tiyan. Before those rows existed, Ulo sent "anxiety" and
+ * Tiyan sent "fever" — the nearest phrases the table happened to contain, which
+ * meant tapping "head" showed a psychiatrist. Adding the rows was a Layer 6/7
+ * data change, deliberately chosen over leaving the imprecise mapping in place.
+ * All four Layer 9 symptoms route to General Medicine, which is the only
+ * seeded specialty that fits them and actually has doctors behind it.
  *
  * A part whose concern does not match returns the normal empty-match state,
  * which the Layer 6 screen already handles as a non-error outcome.
@@ -62,13 +64,13 @@ export const BODY_PARTS: readonly BodyPart[] = [
   {
     id: 'ulo',
     label: 'Ulo',
-    concern: 'anxiety',
+    concern: 'headache',
     icon: 'M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM8 21v-5a4 4 0 0 1 8 0v5',
   },
   {
     id: 'lalamunan',
     label: 'Lalamunan',
-    concern: 'cough',
+    concern: 'sore throat',
     icon: 'M8 3c0 4 1 6 4 7 3-1 4-3 4-7M9 21v-5m6 5v-5M8 13h8',
   },
   {
@@ -80,7 +82,7 @@ export const BODY_PARTS: readonly BodyPart[] = [
   {
     id: 'tiyan',
     label: 'Tiyan',
-    concern: 'fever',
+    concern: 'stomach ache',
     icon: 'M8 3v5c0 2-2 3-2 6a6 6 0 0 0 12 0c0-3-2-4-2-6V3M9 14c2 1 4 1 6 0',
   },
   {
