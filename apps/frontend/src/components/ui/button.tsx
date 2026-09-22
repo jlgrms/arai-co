@@ -16,22 +16,20 @@ import { cn } from '@/lib/utils';
  * rather than shadcn's usual red small text.
  */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
   {
     variants: {
       variant: {
         // Ink is the default solid/interactive color everywhere.
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
-        outline:
-          'border border-border bg-surface text-ink hover:bg-muted',
+        outline: 'border border-border bg-surface text-ink hover:bg-muted',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/90',
         ghost: 'text-ink hover:bg-muted',
         link: 'text-ink underline-offset-4 hover:underline',
         // Red only for the single hero CTA. Large + bold enforced here.
         cta: 'bg-accent text-ink-foreground text-base font-bold hover:bg-accent/90',
         // AA-safe destructive styling (danger tint/text), not red.
-        destructive:
-          'bg-danger-tint text-danger-text hover:bg-danger-tint/80',
+        destructive: 'bg-danger-tint text-danger-text hover:bg-danger-tint/80',
       },
       size: {
         default: 'h-9 px-4 py-2 text-sm',
@@ -59,11 +57,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
     return (
-      <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
-        ref={ref}
-        {...props}
-      />
+      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
     );
   },
 );

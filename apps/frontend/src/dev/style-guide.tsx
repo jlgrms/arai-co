@@ -8,14 +8,7 @@
  * shells. Kept in src/dev to make its non-production status obvious.
  */
 import { toast } from 'sonner';
-import {
-  AlertTriangle,
-  Bell,
-  Check,
-  Info,
-  Mail,
-  Trash2,
-} from 'lucide-react';
+import { AlertTriangle, Bell, Check, Info, Mail, Trash2 } from 'lucide-react';
 
 import { BrandLogo, BrandBadge, TtcIcon } from '@/components/brand/logo';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -119,9 +112,7 @@ export default function StyleGuidePage() {
         <header className="space-y-3">
           <BrandLogo size="lg" />
           <div>
-            <h1 className="font-heading text-3xl font-bold text-ink">
-              Design system reference
-            </h1>
+            <h1 className="font-heading text-3xl font-bold text-ink">Design system reference</h1>
             <p className="text-sm text-muted-foreground">
               Verification-only. Not linked in production navigation.
             </p>
@@ -220,9 +211,7 @@ export default function StyleGuidePage() {
               <CardDescription>Cardiology · 12 yrs experience</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-ink">
-                Next available: Tomorrow, 9:00 AM
-              </p>
+              <p className="text-sm text-ink">Next available: Tomorrow, 9:00 AM</p>
             </CardContent>
             <CardFooter className="gap-2">
               <Button size="sm">Book</Button>
@@ -278,9 +267,7 @@ export default function StyleGuidePage() {
             <Alert variant="destructive">
               <AlertTriangle />
               <AlertTitle>Account suspended</AlertTitle>
-              <AlertDescription>
-                Contact support to restore access.
-              </AlertDescription>
+              <AlertDescription>Contact support to restore access.</AlertDescription>
             </Alert>
           </div>
         </Section>

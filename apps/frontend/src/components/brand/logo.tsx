@@ -16,18 +16,8 @@ export function TtcIcon({ className }: { className?: string }) {
       fill="none"
     >
       {/* scrunched eyes (left + right), drawn as short angled strokes */}
-      <path
-        d="M16 26 L26 20"
-        stroke="currentColor"
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
-      <path
-        d="M48 26 L38 20"
-        stroke="currentColor"
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
+      <path d="M16 26 L26 20" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+      <path d="M48 26 L38 20" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
       {/* teardrops */}
       <path
         d="M18 38 C18 38 13.5 43.5 13.5 46.5 C13.5 49 15.5 51 18 51 C20.5 51 22.5 49 22.5 46.5 C22.5 43.5 18 38 18 38 Z"
@@ -81,9 +71,7 @@ export function BrandLogo({
   return (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
       <BrandBadge size={size} />
-      <span className="font-heading text-lg font-bold tracking-tight text-ink">
-        aray.co!
-      </span>
+      <span className="font-heading text-lg font-bold tracking-tight text-ink">aray.co!</span>
     </span>
   );
 }
