@@ -113,6 +113,33 @@ export class DoctorsService {
   // ---- Sub-item 3: deterministic matching --------------------------------------
 
   /**
+   * The known symptom/concern phrases, for the guided-matching screen's quick-pick
+   * chips. Served from the DB rather than hardcoded in the frontend so the chips
+   * cannot drift from the matching table they are supposed to represent — if the
+   * admin-editable map changes, the chips follow automatically.
+   *
+   * Returns only phrases that actually lead somewhere: each is checked against the
+   * map via the same pure matcher `match()` uses, and dropped unless it resolves to
+   * at least one specialty. A chip that always lands on the "no match" empty state
+   * would be a dead end presented as a suggestion.
+   */
+  async listMatchOptions() {
+    const map = await this.prisma.symptomSpecialtyMap.findMany({
+      select: { symptomOrConcern: true, specialty: true },
+      orderBy: { symptomOrConcern: 'asc' },
+    });
+
+    const options = map
+      .map((row) => ({
+        symptom: row.symptomOrConcern,
+        specialties: matchSymptomToSpecialties(row.symptomOrConcern, map),
+      }))
+      .filter((option) => option.specialties.length > 0);
+
+    return { options };
+  }
+
+  /**
    * Resolve symptom text -> specialties (pure fn) -> APPROVED doctors in those specialties.
    * No-match returns 200 with empty arrays (a valid "no suggestions" outcome).
    */

@@ -15,6 +15,7 @@ import {
 } from '@/features/public/public-screens';
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
+import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -64,12 +65,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/patient/book',
-            element: (
-              <PlaceholderPage
-                title="Book Appointment"
-                description="Guided entry: tell us how you feel and we will match a specialty."
-              />
-            ),
+            element: <GuidedMatchingScreen />,
           },
           {
             path: '/patient/appointments',

@@ -17,6 +17,7 @@ const BCRYPT_ROUNDS = 10;
 //     dr.chen@example.com     Dr. Wei Chen       Cardiology
 //     dr.okafor@example.com   Dr. Amara Okafor   Dermatology
 //     dr.patel@example.com    Dr. Rohan Patel    General Medicine
+//     dr.reyes@example.com    Dr. Camila Reyes   General Medicine
 //     dr.nguyen@example.com   Dr. Linh Nguyen    Pediatrics
 //     dr.silva@example.com    Dr. Mateo Silva    Psychiatry
 //
@@ -62,6 +63,11 @@ async function main(): Promise<void> {
     { email: 'dr.chen@example.com', name: 'Dr. Wei Chen', specialization: 'Cardiology', biography: 'Board-certified cardiologist with 12 years of experience in preventive and interventional care.' },
     { email: 'dr.okafor@example.com', name: 'Dr. Amara Okafor', specialization: 'Dermatology', biography: 'Dermatologist focused on chronic skin conditions and procedural dermatology.' },
     { email: 'dr.patel@example.com', name: 'Dr. Rohan Patel', specialization: 'General Medicine', biography: 'Primary-care physician handling general consultations and chronic disease management.' },
+    // Second General Medicine doctor. Added for Layer 6 sub-item 3 (guided
+    // matching): every other seeded specialty has exactly one doctor, so the
+    // "multiple doctors match your symptom" grouping case would not be
+    // demoable without a second doctor sharing a specialty.
+    { email: 'dr.reyes@example.com', name: 'Dr. Camila Reyes', specialization: 'General Medicine', biography: 'Family physician focused on preventive care and long-term condition management for adults.' },
     { email: 'dr.nguyen@example.com', name: 'Dr. Linh Nguyen', specialization: 'Pediatrics', biography: 'Pediatrician caring for infants, children, and adolescents.' },
     { email: 'dr.silva@example.com', name: 'Dr. Mateo Silva', specialization: 'Psychiatry', biography: 'Psychiatrist specialising in anxiety, mood disorders, and telehealth follow-ups.' },
   ];

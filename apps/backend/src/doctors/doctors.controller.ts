@@ -87,6 +87,15 @@ export class DoctorsController {
 
   // ---- Deterministic matching (any authenticated role) ----
 
+  // Declared BEFORE 'match' for readability, and both before ':id' below.
+  // 'match/options' cannot be captured by ':id' (it has two segments), but
+  // keeping the whole match family together makes the ordering rule obvious.
+  @Get('match/options')
+  @UseGuards(JwtAuthGuard)
+  listMatchOptions() {
+    return this.doctorsService.listMatchOptions();
+  }
+
   @Get('match')
   @UseGuards(JwtAuthGuard)
   match(@Query('symptom') symptom: string) {

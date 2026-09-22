@@ -169,3 +169,124 @@ describe('DoctorsService discovery filters', () => {
     expect(lastWhere(prisma).availabilities).toBeUndefined();
   });
 });
+
+// Layer 6 sub-item 3: the quick-pick chips are served from the matching table, so
+// they must never advertise a phrase that leads to a dead end, and chips sitting
+// under one specialty must resolve to exactly that specialty.
+describe('DoctorsService match options', () => {
+  function makePrisma(rows: Array<{ symptomOrConcern: string; specialty: string }>) {
+    return {
+      symptomSpecialtyMap: { findMany: jest.fn().mockResolvedValue(rows) },
+    } as any;
+  }
+
+  const rows = [
+    { symptomOrConcern: 'chest pain', specialty: 'Cardiology' },
+    { symptomOrConcern: 'palpitations', specialty: 'Cardiology' },
+    { symptomOrConcern: 'rash', specialty: 'Dermatology' },
+    // A phrase whose text does not occur in any other phrase — still fine.
+    { symptomOrConcern: 'cough', specialty: 'General Medicine' },
+  ];
+
+  it('returns one option per distinct phrase, each with its matching specialty', async () => {
+    const svc = new DoctorsService(makePrisma(rows));
+    const { options } = await svc.listMatchOptions();
+    expect(options).toHaveLength(4);
+    const bySymptom = Object.fromEntries(options.map((o) => [o.symptom, o.specialties]));
+    expect(bySymptom['chest pain']).toEqual(['Cardiology']);
+    expect(bySymptom['rash']).toEqual(['Dermatology']);
+    expect(bySymptom['cough']).toEqual(['General Medicine']);
+  });
+
+  it('a phrase matching multiple specialties lists all of them', async () => {
+    // "fever" is a substring of "child fever", so the bidirectional contains-match
+    // pulls in BOTH General Medicine and Pediatrics — a chip that yields 2 groups.
+    const svc = new DoctorsService(
+      makePrisma([
+        { symptomOrConcern: 'fever', specialty: 'General Medicine' },
+        { symptomOrConcern: 'child fever', specialty: 'Pediatrics' },
+      ]),
+    );
+    const { options } = await svc.listMatchOptions();
+    const fever = options.find((o) => o.symptom === 'fever');
+    expect(fever?.specialties).toEqual(['General Medicine', 'Pediatrics']);
+  });
+
+  it('drops any phrase that resolves to zero specialties (no dead-end chips)', async () => {
+    // A row whose own text can never match itself would be a chip that always
+    // lands on the empty state. Here the phantom row is unreachable because its
+    // phrase normalizes to empty.
+    const svc = new DoctorsService(makePrisma([{ symptomOrConcern: '   ', specialty: 'Cardiology' }]));
+    const { options } = await svc.listMatchOptions();
+    expect(options).toEqual([]);
+  });
+
+  it('returns an empty list (not an error) when the map is empty', async () => {
+    const svc = new DoctorsService(makePrisma([]));
+    await expect(svc.listMatchOptions()).resolves.toEqual({ options: [] });
+  });
+
+  it('preserves the specialty casing from the stored map (no re-casing)', async () => {
+    const svc = new DoctorsService(makePrisma([{ symptomOrConcern: 'acne', specialty: 'Dermatology' }]));
+    const { options } = await svc.listMatchOptions();
+    expect(options[0].specialties).toEqual(['Dermatology']);
+  });
+});
+
+// Layer 6 sub-item 3: match() must keep returning 200 + empty arrays on no-match
+// (a valid outcome the UI renders as a non-error empty state), and must scope
+// doctor lookup to APPROVED and to the matched specialties only.
+describe('DoctorsService match()', () => {
+  const mapRows = [
+    { symptomOrConcern: 'chest pain', specialty: 'Cardiology' },
+    { symptomOrConcern: 'rash', specialty: 'Dermatology' },
+  ];
+
+  function makePrisma(doctors: unknown[] = []) {
+    return {
+      symptomSpecialtyMap: { findMany: jest.fn().mockResolvedValue(mapRows) },
+      doctorProfile: { findMany: jest.fn().mockResolvedValue(doctors) },
+    } as any;
+  }
+
+  it('no match -> 200 semantics: empty specialties, empty doctors, no doctor query', async () => {
+    const prisma = makePrisma();
+    const res = await new DoctorsService(prisma).match('something nobody mapped');
+    expect(res).toEqual({
+      symptom: 'something nobody mapped',
+      matchedSpecialties: [],
+      doctors: [],
+    });
+    // Important: don't hit the DB for doctors when there is nothing to look up.
+    expect(prisma.doctorProfile.findMany).not.toHaveBeenCalled();
+  });
+
+  it('blank symptom -> empty result, never an error', async () => {
+    const prisma = makePrisma();
+    const res = await new DoctorsService(prisma).match('');
+    expect(res.matchedSpecialties).toEqual([]);
+    expect(res.doctors).toEqual([]);
+  });
+
+  it('queries only APPROVED doctors in the matched specialties', async () => {
+    const prisma = makePrisma([{ id: 'd1', name: 'Dr. A', specialization: 'Cardiology' }]);
+    const res = await new DoctorsService(prisma).match('chest pain');
+    expect(res.matchedSpecialties).toEqual(['Cardiology']);
+    expect(prisma.doctorProfile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          approvalStatus: 'APPROVED',
+          specialization: { in: ['Cardiology'], mode: 'insensitive' },
+        },
+      }),
+    );
+    expect(res.doctors).toHaveLength(1);
+  });
+
+  it('echoes the original symptom text back verbatim (not normalized)', async () => {
+    const prisma = makePrisma();
+    const res = await new DoctorsService(prisma).match('  Chest   Pain  ');
+    expect(res.symptom).toBe('  Chest   Pain  ');
+    expect(res.matchedSpecialties).toEqual(['Cardiology']);
+  });
+});
