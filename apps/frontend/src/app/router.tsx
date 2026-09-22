@@ -19,6 +19,7 @@ import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen'
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
 import { MyAppointmentsScreen } from '@/features/patient/my-appointments-screen';
 import { ConsultationWorkspaceScreen } from '@/features/patient/consultation-workspace-screen';
+import { MedicalRecordsScreen } from '@/features/patient/medical-records-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -89,12 +90,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/patient/records',
-            element: (
-              <PlaceholderPage
-                title="Medical Records"
-                description="Consultation history, notes, and prescriptions."
-              />
-            ),
+            element: <MedicalRecordsScreen />,
           },
           {
             path: '/patient/profile',
