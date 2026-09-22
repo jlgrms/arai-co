@@ -3,7 +3,7 @@
 // REAL frontend at :5173 against the REAL backend at :3000 in headless Chrome.
 //
 // Verifies the rendered behaviour:
-//   M1  chips render from the DB-backed options endpoint (14 seeded phrases)
+//   M1  chips render from the DB-backed options endpoint (count derived, not hardcoded)
 //   M2  a chip click fills the input AND submits in one tap
 //   M3  free-text submit matches and renders results
 //   M4  a symptom with >1 specialty renders MULTIPLE GROUPS with headings
@@ -15,11 +15,17 @@
 //   M10 zero uncaught exceptions during the whole run
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createReclaimer } from './lib/reclaim.mjs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9232;
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3000';
+
+// FIXTURE DISCIPLINE (DEFERRED item 1): this harness registers a throwaway
+// patient and previously leaked it on every run. The id returned by
+// registration is captured below and reclaimed on every exit path.
+const reclaim = createReclaimer({ label: 'l6s3-matching' });
 
 const chrome = spawn(
   CHROME,
@@ -90,6 +96,10 @@ await send('Page.enable'); await send('Runtime.enable'); await send('Console.ena
 const email = `uimatch-${Date.now()}@example.com`;
 const reg = await (await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'Password123!', name: 'UI Match' }) })).json();
 assert(reg.accessToken, 'registration failed: ' + JSON.stringify(reg));
+// Capture the fixture id for cleanup. The register response is FLAT
+// (`{ accessToken, userId, role }`), not `{ user: { id } }`; reading the wrong
+// field yields undefined and the tracker silently no-ops, leaking the account.
+reclaim.trackUser(reg.userId, email);
 
 const landed = await loginAs(email, 'Password123!');
 console.log('landed on:', landed);
@@ -102,8 +112,22 @@ await step('M1 chips render from the DB-backed options endpoint', async () => {
   const chips = await evaluate(`Array.from(document.querySelectorAll('ul li button')).map(b => b.textContent.trim())`);
   assert(chips.includes('cough'), `expected 'cough' chip, got ${JSON.stringify(chips)}`);
   assert(chips.includes('chest pain'), `expected 'chest pain' chip`);
-  assert(chips.length === 14, `expected 14 chips from the 14 seeded phrases, got ${chips.length}`);
-  return `${chips.length} chips incl. cough, chest pain`;
+  // The expected count comes from the SAME endpoint the UI reads, not a literal.
+  // A literal went stale here once already: this assertion used to demand 14,
+  // and the Layer 9 fix that made the landing chips clinically sensible added
+  // four rows to SymptomSpecialtyMap (14 -> 18), so the harness failed on a
+  // correct product. The phrase set is DATA that legitimately grows; a number
+  // baked into the test measures the seed file, not the screen.
+  const expected = await (await fetch(`${API}/doctors/match/options`, { headers: { Authorization: `Bearer ${reg.accessToken}` } })).json();
+  const expectedPhrases = (expected.options ?? []).map((o) => o.symptom);
+  assert(expectedPhrases.length > 0, 'options endpoint returned no phrases');
+  assert(
+    chips.length === expectedPhrases.length,
+    `expected ${expectedPhrases.length} chips from the options endpoint, got ${chips.length}`,
+  );
+  const missing = expectedPhrases.filter((p) => !chips.includes(p));
+  assert(missing.length === 0, `chips missing options the API returned: ${JSON.stringify(missing)}`);
+  return `${chips.length} chips incl. cough, chest pain (count derived from the options endpoint)`;
 });
 
 await step('M2 a chip click fills the input AND submits in one tap', async () => {
@@ -240,5 +264,9 @@ const failed = results.filter((r) => r.startsWith('FAIL'));
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 
 ws.close();
-chrome.kill();
+chrome.kill('SIGKILL');
+// Reclaim the throwaway account this run registered. Reported per item; an
+// already-gone row is not counted as reclaimed.
+await reclaim.run('success path');
+
 process.exit(failed.length ? 1 : 0);

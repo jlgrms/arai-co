@@ -21,11 +21,17 @@
 // of the right length containing the wrong doctors previously passed.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { createReclaimer } from './lib/reclaim.mjs';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9231;
 const BASE = 'http://localhost:5173';
 const API = 'http://localhost:3000';
+
+// FIXTURE DISCIPLINE (DEFERRED item 1): this harness registers a throwaway
+// patient and previously leaked it on every run. The id returned by
+// registration is captured below and reclaimed on every exit path.
+const reclaim = createReclaimer({ label: 'l6s2-discover' });
 
 const chrome = spawn(
   CHROME,
@@ -92,6 +98,10 @@ await send('Page.enable'); await send('Runtime.enable'); await send('Console.ena
 const email = `uidisc-${Date.now()}@example.com`;
 const reg = await (await fetch(`${API}/auth/register/patient`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'Password123!', name: 'UI Disc' }) })).json();
 assert(reg.accessToken, 'registration failed: ' + JSON.stringify(reg));
+// Capture the fixture id for cleanup. The register response is FLAT
+// (`{ accessToken, userId, role }`), not `{ user: { id } }`; reading the wrong
+// field yields undefined and the tracker silently no-ops, leaking the account.
+reclaim.trackUser(reg.userId, email);
 
 const landed = await loginAs(email, 'Password123!');
 console.log('landed on:', landed);
@@ -220,5 +230,9 @@ const failed = results.filter((r) => r.startsWith('FAIL'));
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 
 ws.close();
-chrome.kill();
+chrome.kill('SIGKILL');
+// Reclaim the throwaway account this run registered. Reported per item; an
+// already-gone row is not counted as reclaimed.
+await reclaim.run('success path');
+
 process.exit(failed.length ? 1 : 0);
