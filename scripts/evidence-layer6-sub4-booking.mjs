@@ -15,7 +15,7 @@
 //   B10 the cancelled slot is offered again (freed)
 //   B11 reschedule moves the appointment to a new time and shows Rescheduled
 //   B12 zero uncaught exceptions during the whole run
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { createReclaimer } from './lib/reclaim.mjs';
 
@@ -109,6 +109,30 @@ assert(reg.accessToken, 'registration failed: ' + JSON.stringify(reg));
 reclaim.trackUser(reg.userId, email);
 const token = reg.accessToken;
 
+// This harness books, cancels and reschedules against a SEEDED doctor. Deleting
+// the throwaway patient cascades that patient's own appointments and
+// notifications away, but the DOCTOR's notifications do not cascade — the doctor
+// is seeded and is never deleted, and Notification has no Appointment FK. So the
+// booking/cancel/reschedule trio leaves rows on the doctor's feed forever unless
+// they are tracked. (Measured: Notification drifted 5 -> 9 over one run.)
+const doctorNotificationIds = new Set();
+let doctorToken = null;
+async function snapshotDoctorNotifications() {
+  if (!doctorToken) return;
+  const r = await fetch(`${API}/notifications/me`, { headers: { Authorization: `Bearer ${doctorToken}` } });
+  const rows = (await r.json()) || [];
+  doctorNotificationIds.clear();
+  for (const n of Array.isArray(rows) ? rows : []) doctorNotificationIds.add(n.id);
+}
+async function trackNewDoctorNotifications() {
+  if (!doctorToken) return;
+  const r = await fetch(`${API}/notifications/me`, { headers: { Authorization: `Bearer ${doctorToken}` } });
+  const rows = (await r.json()) || [];
+  for (const n of Array.isArray(rows) ? rows : []) {
+    if (!doctorNotificationIds.has(n.id)) reclaim.trackNotification(n.id);
+  }
+}
+
 const landed = await loginAs(email, 'Password123!');
 console.log('landed on:', landed);
 
@@ -122,6 +146,20 @@ for (const d of doctors) {
 }
 assert(target, 'no doctor with >=2 slots available for the test');
 console.log(`target doctor: ${target.name} (${target.availabilities?.length ?? target.slots.length} slots)`);
+
+// Log in as the target doctor so their own notification feed can be snapshotted
+// and pruned. The public doctor projection carries userId but not email, so the
+// email is read from the database (the seed uses one password for all doctors).
+{
+  const res = spawnSync('docker', ['exec', 'telehealth-postgres', 'psql', '-U', 'telehealth', '-d', 'telehealth', '-t', '-A', '-c',
+    `SELECT email FROM "User" WHERE id = '${String(target.userId).replace(/'/g, "''")}';`], { encoding: 'utf8' });
+  const docEmail = (res.stdout || '').trim();
+  if (docEmail) {
+    const dl = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: docEmail, password: 'DoctorPass123!' }) })).json();
+    doctorToken = dl.accessToken || null;
+  }
+  await snapshotDoctorNotifications();
+}
 
 await step('B1 discovery "View availability" opens the slot picker for that doctor', async () => {
   await navigate('/patient/discover', 2200);
@@ -184,6 +222,7 @@ await step('B5 booking lands on My Appointments showing doctor + Scheduled', asy
   assert(body.includes(target.name), 'appointment list does not name the doctor');
   assert(body.includes('Scheduled'), 'status chip "Scheduled" not shown');
   assert(body.includes('Upcoming'), 'no Upcoming section');
+  await trackNewDoctorNotifications();
   return `landed on ${path}, shows ${target.name} + Scheduled`;
 });
 
@@ -233,6 +272,7 @@ await step('B9 confirming cancel flips the appointment to Cancelled', async () =
   await sleep(2800);
   const body = await evaluate('document.body.innerText');
   assert(body.includes('Cancelled'), 'appointment not shown as Cancelled');
+  await trackNewDoctorNotifications();
   return 'status now Cancelled';
 });
 
@@ -276,6 +316,7 @@ await step('B11 reschedule moves the appointment and shows Rescheduled', async (
   const moved = list.find((a) => a.status === 'RESCHEDULED');
   assert(moved, 'no RESCHEDULED appointment returned by the API');
   assert(moved.availabilityId, 'rescheduled appointment has no availabilityId');
+  await trackNewDoctorNotifications();
   return `moved; status now Rescheduled (${chips.length} alternative slot(s))`;
 });
 

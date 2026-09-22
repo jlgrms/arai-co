@@ -153,10 +153,24 @@ const OWN_SLOT_ID = slot.id;
 // the throwaway patient does not cascade it away.
 reclaim.trackSlot(OWN_SLOT_ID);
 
+// Booking notifies BOTH parties. The patient's notification cascades when the
+// throwaway patient is deleted, but Dr. Okafor is SEEDED and never deleted, and
+// Notification has no Appointment FK — so her row survives the run forever.
+// Snapshot her feed first, then track whatever the booking adds.
+async function feedIds(tok) {
+  const rows = (await jget('/notifications/me', tok)).body || [];
+  return new Set(Array.isArray(rows) ? rows.map((n) => n.id) : []);
+}
+const doctorFeedBefore = await feedIds(dtToken);
+
 const bookRes = await fetch(`${API}/appointments`, { method: 'POST', headers: H(ptToken), body: JSON.stringify({ availabilityId: OWN_SLOT_ID }) });
 const appt = await bookRes.json();
 assert(bookRes.status === 201, `fixture: booking failed ${bookRes.status} ${JSON.stringify(appt)}`);
 const SESSION_ID = appt.consultationSession.id;
+{
+  const rows = (await jget('/notifications/me', dtToken)).body || [];
+  for (const n of Array.isArray(rows) ? rows : []) if (!doctorFeedBefore.has(n.id)) reclaim.trackNotification(n.id);
+}
 
 console.log(`fixture: patient ${PT_EMAIL}`);
 console.log(`fixture: appointment ${appt.id} | session ${SESSION_ID} (${appt.consultationSession.state})`);
