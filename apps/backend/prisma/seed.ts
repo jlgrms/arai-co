@@ -142,6 +142,49 @@ async function main(): Promise<void> {
     patientProfiles.push(profile);
   }
 
+  // -------------------------------------------------------------------------
+  // SUSPENDED ACCOUNT — the login-403 fixture (DEFERRED item 12).
+  //
+  // WHY: `auth.service.ts` rejects a login with 403 when the credentials are
+  // VALID but `accountState !== ACTIVE`. Every other seeded account is ACTIVE, so
+  // that branch was unreachable by any harness — `evidence-sub3-auth.mjs`'s
+  // "403 account unavailable" step had nothing to hit and could not pass for a
+  // real reason. This account exists solely so that branch has a genuine target.
+  //
+  // WHY A PATIENT: the step drives the same login form as the other auth steps
+  // and uses the patient password, so a PATIENT keeps the step's shape unchanged.
+  // The 403 logic is role-independent — it keys off `accountState`, not `role` —
+  // so a suspended patient exercises exactly the same code path a suspended
+  // doctor would.
+  //
+  // WHY `stateReason` IS SET: the admin console renders the reason inline, and a
+  // suspension with no recorded reason renders an empty cell — which would look
+  // like a rendering bug when it is actually missing fixture data.
+  //
+  // This IS a documented baseline account (User 10 -> 11). It is deliberately
+  // seeded rather than created by a harness: a login fixture must exist BEFORE
+  // any harness runs and must survive independent of any run.
+  // -------------------------------------------------------------------------
+  const suspendedEmail = 'suspended.patient@example.com';
+  const suspendedUser = await prisma.user.create({
+    data: {
+      email: suspendedEmail,
+      passwordHash: patientPasswordHash,
+      role: Role.PATIENT,
+      accountState: AccountState.SUSPENDED,
+      stateReason: 'Suspended by an administrator — see the demo notice.',
+    },
+  });
+  await prisma.patientProfile.create({
+    data: {
+      userId: suspendedUser.id,
+      name: 'Suspended Demo',
+      contactDetails: suspendedEmail,
+      basicMedicalHistory: 'Account suspended for demonstration of the 403 login path.',
+      avatarInitialsOrRef: 'SD',
+    },
+  });
+
   // --- availability slots for each doctor (next 5 weekdays, 09:00-10:00) ---
   const base = new Date();
   base.setHours(0, 0, 0, 0);
