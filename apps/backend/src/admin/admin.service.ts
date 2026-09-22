@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditedRecordType } from '../audit/audit.types';
 import { NotificationType } from '../notifications/notification-types';
+import { adminCancelledMessage } from '../common/domain/notification-message';
 import { UpdateUserStateDto } from './dto/update-user-state.dto';
 import { ReviewDoctorDto } from './dto/review-doctor.dto';
 import { CancelAppointmentDto } from './dto/cancel-appointment.dto';
@@ -200,7 +201,12 @@ export class AdminService {
     const appt = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
-        patientProfile: { select: { userId: true } },
+        // `name` is selected on the patient so the doctor's notification can name
+        // WHICH patient was affected. It previously passed the literal string
+        // "the patient", producing "Appointment with the patient on ... was
+        // cancelled by an administrator" — unactionable for the doctor, who has
+        // no way to tell which of their appointments this refers to.
+        patientProfile: { select: { userId: true, name: true } },
         doctorProfile: { select: { userId: true, name: true } },
       },
     });
@@ -217,12 +223,15 @@ export class AdminService {
     });
 
     // Reuse the sub-item 8 notification pattern (cancel notifies both parties).
-    const when = appt.scheduledAt.toISOString();
-    const build = (name: string) => `Appointment with ${name} on ${when} was cancelled by an administrator`;
+    // Unlike the patient-initiated cancel, the ACTOR here is the administrator,
+    // not either recipient — so the message names the actor instead of the
+    // counterparty, and both parties receive the same wording. The time is
+    // rendered readably rather than as ISO-8601 (see notification-message.ts).
+    const message = adminCancelledMessage(appt.scheduledAt);
     await this.prisma.notification.createMany({
       data: [
-        { userId: appt.doctorProfile.userId, type: NotificationType.APPOINTMENT_CANCELLED, message: build('the patient') },
-        { userId: appt.patientProfile.userId, type: NotificationType.APPOINTMENT_CANCELLED, message: build(appt.doctorProfile.name) },
+        { userId: appt.doctorProfile.userId, type: NotificationType.APPOINTMENT_CANCELLED, message },
+        { userId: appt.patientProfile.userId, type: NotificationType.APPOINTMENT_CANCELLED, message },
       ],
     });
 

@@ -15,6 +15,11 @@ import {
   ExistingBooking,
 } from '../common/domain/booking-conflict';
 import { NotificationType } from '../notifications/notification-types';
+import {
+  appointmentCancelledMessage,
+  appointmentRescheduledMessage,
+  bookingConfirmedMessage,
+} from '../common/domain/notification-message';
 
 // Human-readable conflict messages, surfaced as 409 (S5.5).
 const CONFLICT_MESSAGE: Record<ConflictReason, string> = {
@@ -133,12 +138,13 @@ export class AppointmentsService {
 
     // Sub-item 8: notify BOTH affected parties (S5.2/S5.3). Synchronous writes
     // through the already-injected PrismaService — no queue/async (Flag 2).
-    const when = slot.startTime.toISOString();
+    // The time is rendered readably here rather than interpolated as ISO-8601 —
+    // see notification-message.ts for why it is UTC and not local.
     await this.notifyBothParties(
       slot.doctorProfileId,
       patientUserId,
       NotificationType.BOOKING_CONFIRMED,
-      (name) => `Appointment booked with ${name} on ${when}`,
+      (name) => bookingConfirmedMessage(name, slot.startTime),
     );
 
     return appointment;
@@ -181,12 +187,11 @@ export class AppointmentsService {
     });
 
     // Sub-item 8: notify both parties of the new time.
-    const when = newSlot.startTime.toISOString();
     await this.notifyBothParties(
       appt.doctorProfileId,
       patientUserId,
       NotificationType.APPOINTMENT_RESCHEDULED,
-      (name) => `Appointment with ${name} rescheduled to ${when}`,
+      (name) => appointmentRescheduledMessage(name, newSlot.startTime),
     );
 
     return updated;
@@ -224,12 +229,11 @@ export class AppointmentsService {
 
     // Sub-item 8: notify both parties of the cancellation. scheduledAt survives
     // the cancel on the row, so it still carries the original appt time.
-    const when = appt.scheduledAt.toISOString();
     await this.notifyBothParties(
       appt.doctorProfileId,
       patientUserId,
       NotificationType.APPOINTMENT_CANCELLED,
-      (name) => `Appointment with ${name} on ${when} was cancelled`,
+      (name) => appointmentCancelledMessage(name, appt.scheduledAt),
     );
 
     return updated;
