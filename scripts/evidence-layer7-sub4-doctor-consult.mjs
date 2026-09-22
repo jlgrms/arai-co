@@ -117,15 +117,31 @@ const ptToken = reg.accessToken;
 
 const okafor = (await jget('/doctors', ptToken)).body.find((d) => d.name === 'Dr. Amara Okafor');
 assert(okafor, 'fixture: Dr. Okafor not discoverable');
-const okaforFull = (await jget(`/doctors/${okafor.id}`, ptToken)).body;
-const slot = (okaforFull.availabilities || []).find((a) => !a.isBlocked);
-assert(slot, 'fixture: no free slot for Dr. Okafor');
+const dtToken = await tokenFor(DOC_EMAIL, DOC_PASS);
 
-const bookRes = await fetch(`${API}/appointments`, { method: 'POST', headers: H(ptToken), body: JSON.stringify({ availabilityId: slot.id }) });
+// The harness creates its OWN slot rather than booking one of Dr. Okafor's.
+//
+// It used to take the first free slot she already had and never release it, so
+// every run permanently consumed one of her appointments: repeated runs drained
+// her schedule until the fixture died on "no free slot for Dr. Okafor". A
+// harness may only clean up what it created, so it now makes a private
+// far-future slot and deletes exactly that one at the end.
+const slotRes = await fetch(`${API}/doctors/me/availability`, {
+  method: 'POST',
+  headers: H(dtToken),
+  body: JSON.stringify({
+    startTime: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString(),
+  }),
+});
+const slot = await slotRes.json();
+assert(slotRes.status === 201 || slotRes.status === 200, `fixture: slot creation failed ${slotRes.status} ${JSON.stringify(slot)}`);
+const OWN_SLOT_ID = slot.id;
+
+const bookRes = await fetch(`${API}/appointments`, { method: 'POST', headers: H(ptToken), body: JSON.stringify({ availabilityId: OWN_SLOT_ID }) });
 const appt = await bookRes.json();
 assert(bookRes.status === 201, `fixture: booking failed ${bookRes.status} ${JSON.stringify(appt)}`);
 const SESSION_ID = appt.consultationSession.id;
-const dtToken = await tokenFor(DOC_EMAIL, DOC_PASS);
 
 console.log(`fixture: patient ${PT_EMAIL}`);
 console.log(`fixture: appointment ${appt.id} | session ${SESSION_ID} (${appt.consultationSession.state})`);
@@ -353,7 +369,31 @@ await step('C15 zero uncaught exceptions', async () => {
 
 console.log(results.join('\n'));
 const failed = results.filter((r) => r.startsWith('FAIL')).length;
+
+// Release the harness's OWN fixtures. The appointment is deliberately left
+// COMPLETED (C11/C13 assert that), so it must be cancelled before its slot can
+// be deleted -- the DELETE is 409-gated while a live appointment holds the FK.
+// Reported per item, because counting attempts hides a 409 that reclaimed
+// nothing.
+let reclaimed = 0;
+let attempted = 0;
+const cancelRes = await fetch(`${API}/appointments/${appt.id}/cancel`, {
+  method: 'PATCH',
+  headers: H(ptToken),
+});
+attempted += 1;
+if ([200, 201, 409].includes(cancelRes.status)) reclaimed += 1;
+const delRes = await fetch(`${API}/doctors/me/availability/${OWN_SLOT_ID}`, {
+  method: 'DELETE',
+  headers: H(dtToken),
+});
+attempted += 1;
+if ([200, 204].includes(delRes.status)) reclaimed += 1;
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
-console.log(`session ${SESSION_ID} left COMPLETED; appointment ${appt.id} left BOOKED (throwaway account ${PT_EMAIL})`);
+console.log(
+  `session ${SESSION_ID} left COMPLETED; appointment ${appt.id} cancelled on exit; ` +
+    `harness-owned slot released ${reclaimed}/${attempted} (throwaway account ${PT_EMAIL})`,
+);
 chrome.kill();
 process.exit(failed ? 1 : 0);

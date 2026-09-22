@@ -106,7 +106,52 @@ const token = await (async () => {
   return (await r.json()).accessToken;
 })();
 const appts = await (await fetch(`${API}/appointments/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
-const upcoming = appts.find((a) => a.consultationSession && a.consultationSession.state !== 'COMPLETED');
+
+// C1-C5 need a session that is JOINABLE and NOT YET JOINED, and C10 needs one
+// that is not COMPLETED. Reusing whatever happened to be on the account made
+// those steps depend on run history: once any earlier run had joined the row
+// (or another harness left it IN_PROGRESS), C3/C4/C5 had no joinable session
+// and C10 saw the wrong state -- so the harness quietly degraded instead of
+// testing anything.
+//
+// It therefore creates its OWN appointment on a fresh slot, exactly like the
+// Layer 7 harnesses, and releases both on exit. Only what this harness made is
+// ever deleted, so the seeded demo data and the doctors' schedules are left
+// alone and the run is repeatable.
+const DOC_EMAIL = 'dr.nguyen@example.com';
+const DOC_PASS = 'DoctorPass123!';
+const docToken = await (async () => {
+  const r = await fetch(`${API}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: DOC_EMAIL, password: DOC_PASS }),
+  });
+  return (await r.json()).accessToken;
+})();
+
+const slotRes = await fetch(`${API}/doctors/me/availability`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${docToken}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    startTime: new Date(Date.now() + 130 * 24 * 60 * 60 * 1000).toISOString(),
+    endTime: new Date(Date.now() + 130 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString(),
+  }),
+});
+const ownSlot = await slotRes.json();
+assert(slotRes.status === 201 || slotRes.status === 200, `harness slot creation failed: ${slotRes.status} ${JSON.stringify(ownSlot)}`);
+
+const bookRes = await fetch(`${API}/appointments`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ availabilityId: ownSlot.id }),
+});
+const ownAppt = await bookRes.json();
+assert(bookRes.status === 201, `harness booking failed: ${bookRes.status} ${JSON.stringify(ownAppt)}`);
+
+const upcoming = ownAppt;
+// The COMPLETED row is the seeded one: this harness must not be able to fake a
+// completed consultation, and the patient's records screen should be verified
+// against the demo data a real user would see.
 const completed = appts.find((a) => a.consultationSession && a.consultationSession.state === 'COMPLETED');
 assert(upcoming, 'no joinable (non-completed) seeded appointment found');
 assert(completed, 'no COMPLETED seeded appointment found');
@@ -115,8 +160,25 @@ console.log(`completed session: ${completed.consultationSession.id}`);
 
 await step('C1 "Join consultation" on My Appointments opens the workspace', async () => {
   await navigate('/patient/appointments', 2400);
-  const clicked = await evaluate(clickByText('Join consultation'));
-  assert(clicked === 'OK', `join click: ${clicked}`);
+  // Click the Join control belonging to the session resolved above, matched by
+  // its href. A blind `clickByText('Join consultation')` takes the first match
+  // in DOM order, which -- with several live appointments on this account --
+  // is a different session than the one C2/C3 then assert against. Same order
+  // dependency as C6, same remedy.
+  const targetHref = `/patient/consultations/${upcoming.consultationSession.id}`;
+  const clicked = await evaluate(
+    `(() => {
+       const a = Array.from(document.querySelectorAll('a[href]'))
+         .find((a) => a.getAttribute('href') === ${JSON.stringify(targetHref)});
+       if (!a) return 'NO_LINK';
+       a.click();
+       return 'OK';
+     })()`,
+  );
+  assert(
+    clicked === 'OK',
+    `no Join link for session ${targetHref} on My Appointments (got ${clicked})`,
+  );
   await sleep(2400);
   const path = await evaluate('location.pathname');
   assert(
@@ -129,27 +191,34 @@ await step('C1 "Join consultation" on My Appointments opens the workspace', asyn
 });
 
 await step('C2 a fresh session shows "Not started" with both presence rows', async () => {
-  // Reset the session to SCHEDULED via the API only if a previous run joined it;
-  // the join state is server-side, so the screen legitimately reflects it.
   const state = await (await fetch(`${API}/consultations/${upcoming.consultationSession.id}`, { headers: { Authorization: `Bearer ${token}` } })).json();
   const body = await evaluate('document.body.innerText');
   assert(body.includes('You'), 'missing own presence row');
   assert(body.includes('Your doctor'), 'missing doctor presence row');
-  // Either pre-join or waiting is valid depending on prior runs; both must be calm.
-  if (state.state === 'SCHEDULED') {
-    assert(body.includes('Not started'), `expected "Not started" for SCHEDULED, body: ${body.slice(0, 300)}`);
-  }
+  // This session was booked seconds ago and never joined, so it must be
+  // SCHEDULED. The old version only checked the label "if" the server happened
+  // to say SCHEDULED, which meant the assertion vanished exactly when the state
+  // had drifted -- the case where it mattered most.
+  assert(state.state === 'SCHEDULED', `fresh session is ${state.state}, expected SCHEDULED`);
+  assert(
+    body.includes('Not started'),
+    `expected "Not started" for SCHEDULED, body: ${body.slice(0, 300)}`,
+  );
+  assert(body.includes('Not yet joined'), 'own presence row does not say the patient has not joined');
   return `session state=${state.state}; both presence rows present`;
 });
 
 await step('C3 joining shows the WAITING state while the doctor is absent', async () => {
   const btn = await evaluate(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => /^(Join consultation|Check again)$/.test(b.textContent.trim())); return b ? b.textContent.trim() : 'NO_BTN'; })()`);
-  if (btn === 'NO_BTN') {
-    // Already joined by a previous run; force it back to SCHEDULED so the join
-    // path itself is exercised rather than skipped.
-    await fetch(`${API}/consultations/${upcoming.consultationSession.id}/unjoin-test-reset`, { method: 'POST' }).catch(() => {});
-    return 'join button absent because a previous run already joined (state kept)';
-  }
+  // This harness owns a freshly booked, never-joined session, so the join
+  // control MUST be present. An absent button is now a real failure rather than
+  // a "previous run already joined" case -- the earlier conditional return here
+  // silently skipped the assertion whenever that happened, so the step could
+  // pass without testing a join at all.
+  assert(
+    btn !== 'NO_BTN',
+    `no Join control on a freshly booked session; body=${(await evaluate('document.body.innerText')).slice(0, 300)}`,
+  );
   await evaluate(`(() => { const b = Array.from(document.querySelectorAll('button')).find(b => /^(Join consultation|Check again)$/.test(b.textContent.trim())); b.click(); })()`);
   await sleep(2400);
   const body = await evaluate('document.body.innerText');
@@ -186,13 +255,42 @@ await step('C5 re-joining while waiting stays in the waiting state (idempotent)'
 
 await step('C6 "View summary" on a completed appointment opens its records', async () => {
   await navigate('/patient/appointments', 2400);
-  const clicked = await evaluate(clickByText('View summary'));
-  assert(clicked === 'OK', `view summary click: ${clicked}`);
+
+  // Click the "View summary" link belonging to the COMPLETED appointment
+  // resolved above, selected BY HREF rather than as the first match in DOM
+  // order.
+  //
+  // `partitionAppointments` puts CANCELLED rows into `past`, sorted by
+  // scheduledAt descending, so a cancelled throwaway appointment (made by
+  // another harness, or by an earlier run of this one) sorts ABOVE the seeded
+  // COMPLETED rows. A blind `clickByText('View summary')` therefore opened a
+  // CANCELLED appointment, whose session is still SCHEDULED -- "Not started",
+  // no records -- and C6/C7/C8/C9 all failed while the screen was doing exactly
+  // the right thing. Choosing by session id removes the order dependency.
+  const targetHref = `/patient/consultations/${completed.consultationSession.id}`;
+  const clicked = await evaluate(
+    `(() => {
+       const a = Array.from(document.querySelectorAll('a[href]'))
+         .find((a) => a.getAttribute('href') === ${JSON.stringify(targetHref)});
+       if (!a) return 'NO_LINK';
+       a.click();
+       return 'OK';
+     })()`,
+  );
+  assert(
+    clicked === 'OK',
+    `no link to the completed session ${targetHref} on My Appointments (got ${clicked})`,
+  );
   await sleep(2600);
   const path = await evaluate('location.pathname');
   assert(
     path.startsWith('/patient/consultations/'),
     `expected a consultation path, got ${path}`,
+  );
+  // Land on the session whose link was clicked, not merely some consultation.
+  assert(
+    path.endsWith(completed.consultationSession.id),
+    `clicked ${targetHref} but landed on ${path}`,
   );
   const body = await evaluate('document.body.innerText');
   assert(body.includes('Completed'), 'completed state not shown');
@@ -200,9 +298,7 @@ await step('C6 "View summary" on a completed appointment opens its records', asy
     body.includes('Consultation notes'),
     `records section missing, body: ${body.slice(0, 400)}`,
   );
-  // Record WHICH session this click opened. The list order is not guaranteed, so
-  // asserting later steps against a hardcoded session id compares the rendered
-  // page to the wrong records and fails for no real reason.
+  // Recorded so C7/C8 compare the rendered page against THIS session's records.
   openedSessionId = path.split('/').pop();
   return `records section rendered at ${path}`;
 });
@@ -270,6 +366,26 @@ console.log('\n=== LAYER 6 SUB-ITEM 5 — PATIENT CONSULTATION WORKSPACE EVIDENC
 for (const r of results) console.log(r);
 const failed = results.filter((r) => r.startsWith('FAIL'));
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
+
+// Release this harness's OWN fixtures (the appointment and slot it created).
+// The appointment is cancelled first: DELETE on a slot is 409-gated while a live
+// appointment still holds the FK. Reported per item, because an attempt count
+// would hide a 409 that reclaimed nothing.
+let reclaimed = 0;
+let attempted = 0;
+const cancelRes = await fetch(`${API}/appointments/${upcoming.id}/cancel`, {
+  method: 'PATCH',
+  headers: { Authorization: `Bearer ${token}` },
+});
+attempted += 1;
+if ([200, 201, 409].includes(cancelRes.status)) reclaimed += 1;
+const delRes = await fetch(`${API}/doctors/me/availability/${ownSlot.id}`, {
+  method: 'DELETE',
+  headers: { Authorization: `Bearer ${docToken}` },
+});
+attempted += 1;
+if ([200, 204].includes(delRes.status)) reclaimed += 1;
+console.log(`harness-owned fixtures released ${reclaimed}/${attempted}`);
 
 ws.close();
 chrome.kill();
