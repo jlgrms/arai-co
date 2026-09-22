@@ -26,6 +26,7 @@ import { BookAppointmentScreen } from '@/features/patient/book-appointment-scree
 import { MyAppointmentsScreen } from '@/features/patient/my-appointments-screen';
 import { ConsultationWorkspaceScreen } from '@/features/patient/consultation-workspace-screen';
 import { MedicalRecordsScreen } from '@/features/patient/medical-records-screen';
+import { AdminUsersScreen } from '@/features/admin/admin-users-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -170,12 +171,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/admin/users',
-            element: (
-              <PlaceholderPage
-                title="Users"
-                description="Search and manage patient and doctor accounts."
-              />
-            ),
+            element: <AdminUsersScreen />,
           },
           {
             path: '/admin/doctors',

@@ -78,14 +78,56 @@ Session states after clean: BOOKED+SCHEDULED (1, Sam↔Okafor), BOOKED+JOINED (1
 seeded live Patel↔Jordan), BOOKED+IN_PROGRESS (1, Jordan↔Silva),
 CANCELLED+SCHEDULED (1, john's), COMPLETED+COMPLETED (3, seeded).
 
-## 2. Notification timestamps render in UTC
+## 2. `evidence-cancelled-join.mjs` over-reports its cleanup — DEFERRED to Layer 10
+
+**Status:** found during Layer 8 sub-item 1; deferred with the rest of the
+harness work (not dropped). Not fixed, per the "don't touch the harnesses yet"
+decision.
+
+**The defect.** In the cleanup block, cancelling a harness-owned appointment is
+counted as reclaimed for `status === 200 || 201 || 409`:
+
+```js
+const res = await request('PATCH', `/appointments/${id}/cancel`, { token: patientToken });
+// Already-cancelled counts as reclaimed: the slot FK is free either way.
+if (res.status === 200 || res.status === 201 || res.status === 409) reclaimed += 1;
+```
+
+The comment's premise is wrong for this route. `PATCH /appointments/:id/cancel`
+returns **409 when the cancel is refused** because the slot is still consumed
+(`assertSlotNotConsumed`), not when it is already cancelled. A 409 therefore means
+the appointment is **still live and still holding its slot** — the opposite of
+reclaimed.
+
+**Observed effect.** The run reports `reclaim 4/4 harness-owned fixtures
+released`, while leaving one live `BOOKED` appointment (Jordan ↔ Patel,
+2027-07-28) and its slot behind. Verified by reading the code and then observing
+the residue in the database: the doctor's slot count came back as Patel 7
+(baseline 6) and the appointment table as 8 rows (baseline 7).
+
+**Why it matters.** This is the same "reports attempts, not successes" defect
+that `a513584` fixed elsewhere — it makes the harness's own cleanup claim
+untrustworthy, which is worse than reporting nothing. It also silently erodes the
+doctor's schedule: Patel's slot count drifts up and the admin Appointments screen
+(baseline 7) gains a phantom row per run.
+
+**What it would take.** Treat only 200/201 as reclaimed; treat 409 as a failure
+to reclaim and surface it. Better, cancel-by-SQL or delete the appointment
+directly so the slot FK is definitely freed.
+
+**Interim mitigation.** `scripts/db-clean-harness-users.sh` reclaims this residue
+via section 2a (it is a `BOOKED` row, not `CANCELLED`, so check the predicate if
+this recurs). The far-future slot itself is left; it must be deleted by hand or
+by extending the script.
+
+## 3. Notification timestamps render in UTC
 
 `Notification` is a frozen leaf table with only a `string message`, so the server
 has no user locale and messages embed UTC times (e.g. "8 Jun 2028, 06:03 UTC").
 Notifications are append-only, so pre-fix rows keep their ISO strings forever.
 A fix is forward-only; no scope was agreed for it.
 
-## 3. No screen has ever been visually inspected
+## 4. No screen has ever been visually inspected
 
 Verification is DOM/behavioural only. Layout, spacing, colour, and overflow are
 unverified — PNGs cannot be read back for review.
