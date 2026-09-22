@@ -28,6 +28,7 @@ import { ConsultationWorkspaceScreen } from '@/features/patient/consultation-wor
 import { MedicalRecordsScreen } from '@/features/patient/medical-records-screen';
 import { AdminUsersScreen } from '@/features/admin/admin-users-screen';
 import { AdminDoctorsScreen } from '@/features/admin/admin-doctors-screen';
+import { AdminAppointmentsScreen } from '@/features/admin/admin-appointments-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -180,12 +181,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/admin/appointments',
-            element: (
-              <PlaceholderPage
-                title="Appointments"
-                description="Oversee all appointments and consultation states."
-              />
-            ),
+            element: <AdminAppointmentsScreen />,
           },
           {
             path: '/admin/audit',

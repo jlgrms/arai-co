@@ -20,6 +20,11 @@ import {
   type DoctorFilters,
   type ReviewDoctorInput,
 } from './admin-doctor-types';
+import type {
+  AdminAppointment,
+  CancelAppointmentInput,
+  CancelledAppointmentRow,
+} from './admin-appointment-types';
 
 /**
  * List/search patient and doctor accounts.
@@ -79,4 +84,53 @@ export function reviewDoctor(
   input: ReviewDoctorInput,
 ): Promise<AdminDoctor> {
   return api.patch<AdminDoctor>(`/admin/doctors/${doctorProfileId}/review`, input);
+}
+
+/**
+ * List ALL appointments across every patient and doctor (Layer 8 sub-item 3).
+ *
+ * The endpoint takes NO parameters — no search, no status filter, no pagination
+ * (see AdminController.listAppointments). It returns the whole set ordered by
+ * scheduledAt desc. The screen's filter box therefore narrows the loaded array
+ * LOCALLY and says so; it must not be presented as a server query.
+ *
+ * Each row carries BOTH profile names plus the consultation session, so a single
+ * fetch feeds the whole table without follow-up requests.
+ */
+export function fetchAdminAppointments(signal?: AbortSignal): Promise<AdminAppointment[]> {
+  return api.get<AdminAppointment[]>('/admin/appointments', { signal });
+}
+
+/**
+ * Admin-scoped cancellation (S5.4) — the override path, NOT the patient route.
+ *
+ * Posts to `/admin/appointments/:id/cancel` (the patient screen uses
+ * `PATCH /appointments/:id/cancel`; different verb AND path, do not conflate).
+ * This has no ownership gate, so it works on any appointment. The server answers
+ * 200 (@HttpCode(200)) and is idempotent: re-cancelling an already-CANCELLED
+ * appointment returns the row unchanged with no second notification and no
+ * second audit entry — which is why the UI only offers the action on live rows.
+ *
+ * On success the server cancels for BOTH parties, nulls `availabilityId` to
+ * release the slot, and notifies doctor and patient. `reason` is optional; omit
+ * it rather than sending "" (see buildCancelBody).
+ *
+ * IMPORTANT — the RESPONSE SHAPE DIFFERS FROM THE LIST. This handler returns the
+ * raw Appointment columns (the service calls `update()` with no `select`), so it
+ * carries NO patientProfile / doctorProfile / consultationSession relations,
+ * unlike GET /admin/appointments. The response type is therefore
+ * CancelledAppointmentRow, NOT AdminAppointment, and the caller must MERGE it
+ * onto the row it already holds rather than replacing it (see
+ * mergeCancelledAppointment). Replacing threw on the very next render.
+ *
+ * `appointmentId` is the Appointment id — the session id is a different UUID.
+ */
+export function cancelAdminAppointment(
+  appointmentId: string,
+  input: CancelAppointmentInput = {},
+): Promise<CancelledAppointmentRow> {
+  return api.post<CancelledAppointmentRow>(
+    `/admin/appointments/${appointmentId}/cancel`,
+    input,
+  );
 }

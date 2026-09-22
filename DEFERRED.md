@@ -195,4 +195,38 @@ unverified — PNGs cannot be read back for review. **Re-raised at Layer 8
 sub-item 2 (Flag 7) and confirmed by the stakeholder as deferred to the Layer 8
 close-out visual pass.** This gap is now three layers deep (Layers 6, 7, 8), and
 the doctor-review screen adds a composition — status chips plus inline per-row
-actions plus a modal edit form — that DOM assertions cannot validate at all.
+actions plus a modal edit form — that DOM assertions cannot validate at all. The
+appointment-oversight screen (sub-item 3) adds a second: a six-column table with
+stacked badges per cell and a destructive row action.
+
+## 6. Inconsistent mutation-response shapes across admin endpoints
+
+**Status:** NOT deferred for fixing — the client now handles both shapes — but
+recorded as backend debt worth a follow-up.
+
+**What is owed.** `POST /admin/appointments/:id/cancel` returns the **raw
+Appointment row** (the service calls `prisma.appointment.update(...)` with no
+`select`), so its payload omits `patientProfile`, `doctorProfile`, and
+`consultationSession`. Every other admin read — `GET /admin/appointments`,
+`GET /admin/doctors`, `PATCH /admin/doctors/:id/review` — returns the joined
+shape. Two endpoints over the same entity therefore disagree about what an
+appointment looks like.
+
+**Why it matters.** It caused a real crash. The screen replaced its loaded row
+with the cancel response, which dropped the relations, and the next render threw
+`TypeError: Cannot read properties of undefined (reading 'state')` — a
+**whitescreen on a successfully cancelled appointment**. Fixed on the client by
+introducing `CancelledAppointmentRow` (the honest type for what the endpoint
+returns) and `mergeCancelledAppointment` (folds only the scalars that can change
+onto the row already held), with unit tests that reproduce the crash. See
+`apps/frontend/src/features/admin/admin-appointment-types.ts`.
+
+**Why it was not fixed at source.** Changing the backend response shape is Layer 4
+scope and would need its own evidence run; sub-item 3 is frontend-only by
+decision. The client fix is correct and tested — but the underlying inconsistency
+remains, and any future caller of this endpoint can trip the same wire.
+
+**What it would take.** Add the same `select` to the cancel path's `update()`
+(and to the returned-from-idempotent-branch `findUnique`, which has the same
+omission) so both admin appointment endpoints return one shape. That would let
+`CancelledAppointmentRow` and the merge helper be deleted.

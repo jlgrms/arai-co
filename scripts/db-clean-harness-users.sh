@@ -64,7 +64,7 @@ APPLY=0
 # needs this as a safety net if that reclaim fails). Add the Layer 8+ prefixes
 # here as those harnesses are written, or their fixtures are unreclaimable and
 # the admin console degrades again.
-PREFIXES=('bell.%' 'l7s4%' 'uibook-%' 'uidisc-%' 'uimatch-%' 'notif-%' 'l8s1%' 'l8s2%')
+PREFIXES=('bell.%' 'l7s4%' 'uibook-%' 'uidisc-%' 'uimatch-%' 'notif-%' 'l8s1%' 'l8s2%' 'l8s3%')
 
 WHERE="u.email LIKE '${PREFIXES[0]}'"
 for p in "${PREFIXES[@]:1}"; do WHERE="$WHERE OR u.email LIKE '$p'"; done
