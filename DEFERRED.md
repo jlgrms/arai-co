@@ -140,14 +140,14 @@ asserts a hard count must say which of the two it expects. A reseed silently
 drops the post-clean baseline to the seed baseline — which is what happened here,
 and why User reads 10 rather than 11.
 
-## 2. `evidence-cancelled-join.mjs` over-reports its cleanup — DEFERRED to Layer 10
+## 2. `evidence-cancelled-join.mjs` over-reports its cleanup — RESOLVED
 
-**Status:** found during Layer 8 sub-item 1; deferred with the rest of the
-harness work (not dropped). Not fixed, per the "don't touch the harnesses yet"
-decision.
+**Status:** RESOLVED (Layer 10 harness task 3). Fixed by adopting
+`scripts/lib/reclaim.mjs`, the same helper item 1 introduced.
 
-**The defect.** In the cleanup block, cancelling a harness-owned appointment is
-counted as reclaimed for `status === 200 || 201 || 409`:
+**The defect (as originally recorded).** In the cleanup block, cancelling a
+harness-owned appointment is counted as reclaimed for
+`status === 200 || 201 || 409`:
 
 ```js
 const res = await request('PATCH', `/appointments/${id}/cancel`, { token: patientToken });
@@ -181,6 +181,59 @@ directly so the slot FK is definitely freed.
 via section 2a (it is a `BOOKED` row, not `CANCELLED`, so check the predicate if
 this recurs). The far-future slot itself is left; it must be deleted by hand or
 by extending the script.
+
+**The fix.** The whole cancel-dance cleanup block was removed, not patched. Its
+premise was wrong for this route: `PATCH /appointments/:id/cancel` returns **409
+when the cancel is refused** because the slot is still consumed, so 409 means the
+appointment is *still live and still holding its slot* — the opposite of
+reclaimed. Treating "only 200/201 as reclaimed" would have been the minimal
+repair, but it still leaves the appointment row, its session and its notifications
+behind after a successful cancel. The harness now books against the two private
+slots it creates itself, tracks every id it produces
+(`trackSlot` / `trackAppointment` / `trackNotification`), and lets the shared
+reclaimer delete them by id and report per-item outcomes. Only ids created by the
+run are known to the reclaimer, so the doctor's pre-existing schedule is never
+touched.
+
+**Notification coverage — the second bug, and the interesting one.** Adopting the
+reclaimer is not sufficient here, because `Notification` has no FK to
+`Appointment` (item 1, bug 3) and both parties are **seeded** accounts, so nothing
+cascades. The harness must therefore snapshot each party's feed and track the
+*new* rows. It had to be done for **every mutation**, and the first two attempts
+got it wrong in the same way — tracking a later snapshot's delta while a *prior*
+mutation's rows sat inside the baseline:
+
+1. First pass tracked only Leg 2's cancel. Leg 1's live-join booking and Leg 2's
+   booking each write a `BOOKING_CONFIRMED` to both parties, so **+4** rows were
+   left behind. Reported `reclaimed 8/8` while Notification drifted 5 → 9.
+2. Second pass snapshotted both feeds *before Leg 2's booking* and used that
+   snapshot to isolate the cancel — which by construction includes the booking's
+   two rows in the baseline. **+2** left behind, printed `reclaimed 8/8`,
+   Notification 5 → 7.
+
+The correct ordering, now in the file: snapshot both feeds **before any booking**,
+then after *each* booking call `trackNewNotifications` (isolating that booking's
+rows), and only then re-snapshot for the cancel. The rows are tagged
+`BOOKING_CONFIRMED` (×4: two per booking, one per party) and
+`APPOINTMENT_CANCELLED` (×2) — six notifications, all tracked.
+
+**Measured result.** Three consecutive runs:
+
+```
+run 1  exit 0   13 passed, 0 failed   reclaimed 10/10   baseline restored
+run 2  exit 0   13 passed, 0 failed   reclaimed 10/10   baseline restored
+run 3  exit 0   13 passed, 0 failed   reclaimed 10/10   baseline restored
+```
+
+After each run the database is back at the exact pure-seed baseline (User 10,
+PatientProfile 3, DoctorProfile 6, Appointment 4, ConsultationSession 4,
+Availability 31, Notification 5, SymptomSpecialtyMap 18). Before the fix the same
+harness printed `reclaim 4/4 harness-owned fixtures released` while leaving +2
+appointments, +2 sessions and +8 notifications.
+
+**Regression check.** vitest 415/415, jest 143/143, `pnpm lint` exit 0, and
+`tsc -b` exit 0 for both packages after the change (the harness is unbuilt script
+code, so these confirm no collateral damage rather than exercising it).
 
 ## 3. No seeded PENDING/REJECTED doctor — the review queue is empty by default
 

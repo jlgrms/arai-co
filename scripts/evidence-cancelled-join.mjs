@@ -34,9 +34,32 @@
  * Usage: node scripts/evidence-cancelled-join.mjs
  */
 
+import { createReclaimer } from './lib/reclaim.mjs';
+
 const API = process.env.API_BASE ?? 'http://localhost:3000';
 const PATIENT = { email: 'jordan.lee@example.com', password: 'PatientPass123!' };
 const DOCTOR = { email: 'dr.silva@example.com', password: 'DoctorPass123!' };
+
+// Fixture reclamation (DEFERRED items 1 and 2). This harness books against
+// SEEDED accounts, so nothing it creates cascades: deleting a user is not even
+// possible here (both are seed data). The appointments, their consultation
+// sessions and the notifications the cancel generates are tracked by id and
+// removed outright.
+const reclaim = createReclaimer({ label: 'cancelled-join' });
+
+// Notification has no Appointment FK (see scripts/lib/reclaim.mjs), and both
+// parties here are seeded accounts, so the cancel's notifications do not cascade
+// either. Snapshot a token's feed so newly-added rows can be identified.
+async function feedIds(token) {
+  const res = await request('GET', '/notifications/me', { token });
+  const rows = Array.isArray(res.body) ? res.body : [];
+  return new Set(rows.map((n) => n.id));
+}
+async function trackNewNotifications(token, before) {
+  const res = await request('GET', '/notifications/me', { token });
+  const rows = Array.isArray(res.body) ? res.body : [];
+  for (const n of rows) if (!before.has(n.id)) reclaim.trackNotification(n.id);
+}
 
 let pass = 0;
 let fail = 0;
@@ -124,6 +147,7 @@ async function makeOwnSlots(token, count) {
       );
     }
     slots.push(res.body.id);
+    reclaim.trackSlot(res.body.id);
   }
   // Return in chronological order so J3 uses the earlier slot.
   return slots.sort((a, b) => a.localeCompare(b)).map((id, i) => ({ id, i }));
@@ -141,13 +165,19 @@ async function main() {
     throw new Error(`could only create ${ownSlots.length}/2 harness slots`);
   }
 
-  const madeAppointments = [];
-  const madeSlots = ownSlots.map((s) => s.id);
+  // Snapshot BOTH parties' notification feeds before ANY booking. Every booking
+  // writes a BOOKING_CONFIRMED row to each party, and neither cascades (both are
+  // seeded accounts), so both legs have to be covered — not just the cancelled
+  // one. Missed on the first pass: tracking only Leg 2 left +4 rows behind.
+  const patientFeedAtStart = await feedIds(patientToken);
+  const doctorFeedAtStart = await feedIds(doctorToken);
 
   try {
     // ============ Leg 1 — a LIVE appointment CAN still be joined ============
     const live = await book(patientToken, ownSlots[0].id);
-    madeAppointments.push(live.appointmentId);
+    reclaim.trackAppointment(live.appointmentId);
+    await trackNewNotifications(patientToken, patientFeedAtStart);
+    await trackNewNotifications(doctorToken, doctorFeedAtStart);
     check('J1  booking a live appointment succeeds', Boolean(live.appointmentId), live.appointmentId);
     check('J1b a consultation session exists for it', Boolean(live.sessionId), live.sessionId ?? 'none');
     if (!live.sessionId) return;
@@ -172,12 +202,27 @@ async function main() {
 
     // ============ Leg 2 — a CANCELLED appointment CANNOT ====================
     const doomed = await book(patientToken, ownSlots[1].id);
-    madeAppointments.push(doomed.appointmentId);
+    reclaim.trackAppointment(doomed.appointmentId);
     if (!doomed.sessionId) throw new Error('no session for the second booking');
+
+    // THIS BOOKING ALSO WRITES NOTIFICATIONS — one BOOKING_CONFIRMED to each
+    // party — and they must be captured BEFORE the next snapshot below, because
+    // that snapshot is taken to isolate the CANCEL's notifications. Missing this
+    // is what left +2 rows behind on the second pass: only the cancel's two rows
+    // were tracked, the booking's two were not.
+    await trackNewNotifications(patientToken, patientFeedAtStart);
+    await trackNewNotifications(doctorToken, doctorFeedAtStart);
+
+    // Snapshot both parties' feeds before the cancel, because the cancel writes a
+    // notification to each and neither cascades.
+    const patientFeedBefore = await feedIds(patientToken);
+    const doctorFeedBefore = await feedIds(doctorToken);
 
     const cancelled = await request('PATCH', `/appointments/${doomed.appointmentId}/cancel`, {
       token: patientToken,
     });
+    await trackNewNotifications(patientToken, patientFeedBefore);
+    await trackNewNotifications(doctorToken, doctorFeedBefore);
     check(
       'J4  cancelling the appointment succeeds',
       cancelled.status === 200 || cancelled.status === 201,
@@ -245,30 +290,24 @@ async function main() {
       `got ${doctorJoin.status}`,
     );
   } finally {
-    // --- Cleanup: release the appointments, then delete OUR OWN slots ---------
-    // Only slots created by `makeOwnSlots` are in `madeSlots`, so the doctor's
-    // pre-existing schedule is never touched.
-    let reclaimed = 0;
-    let attempted = 0;
-    for (const id of [...new Set(madeAppointments)]) {
-      attempted += 1;
-      const res = await request('PATCH', `/appointments/${id}/cancel`, { token: patientToken });
-      // Already-cancelled counts as reclaimed: the slot FK is free either way.
-      if (res.status === 200 || res.status === 201 || res.status === 409) reclaimed += 1;
-    }
-    for (const id of [...new Set(madeSlots)]) {
-      attempted += 1;
-      const del = await request('DELETE', `/doctors/me/availability/${id}`, { token: doctorToken });
-      if (del.status === 200 || del.status === 204) reclaimed += 1;
-    }
-    results.push(
-      `  reclaim  ${reclaimed}/${attempted} harness-owned fixtures released (per-item, not attempts)`,
-    );
+    // --- Cleanup: remove exactly what this run created -----------------------
+    // This block used to CANCEL the appointments and count a 409 as reclaimed,
+    // on the premise that "the slot FK is free either way". The premise is wrong
+    // for this route: the cancel returns 409 when it is REFUSED because the slot
+    // is still consumed, and in any case a cancel leaves the appointment row (and
+    // its session and notifications) behind. Measured: the old block printed
+    // "reclaim 4/4" while the database gained 2 appointments, 2 sessions and 8
+    // notifications. The reclaimer deletes rows by id and reports real outcomes.
+    //
+    // Slots are deleted outright rather than freed by cancelling, so no
+    // appointment row survives to hold the FK. Only ids created above are known
+    // to the reclaimer, so the doctor's pre-existing schedule is never touched.
   }
 
   console.log('\nCancelled-appointment join guard — evidence\n');
   console.log(results.join('\n'));
   console.log(`\n  ${pass} passed, ${fail} failed\n`);
+  await reclaim.run('success path');
   process.exit(fail === 0 ? 0 : 1);
 }
 
