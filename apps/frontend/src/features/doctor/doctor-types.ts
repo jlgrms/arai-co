@@ -81,23 +81,6 @@ export function slotSealedReason(slot: ScheduleSlot): string | null {
   return `Booked by ${slot.bookedBy.patientName} — cancel or reschedule that appointment first.`;
 }
 
-/** A patient record row as returned by the doctor-scoped records endpoint. */
-export interface DoctorPatientRecord {
-  sessionId: string;
-  /** SCHEDULED | JOINED | IN_PROGRESS | COMPLETED. */
-  state: 'SCHEDULED' | 'JOINED' | 'IN_PROGRESS' | 'COMPLETED';
-  /** The appointment time. Always present, including for upcoming sessions. */
-  scheduledAt: string;
-  /** When the session was completed; null while it is still upcoming/active. */
-  completedAt: string | null;
-  doctorName: string | null;
-  specialization: string | null;
-  /** The counterparty for a doctor — whose records these are. */
-  patientName: string | null;
-  notes: Array<{ id: string; content?: string; createdAt?: string }>;
-  prescriptions: Array<{ id: string; medication?: string; dosage?: string; createdAt?: string }>;
-}
-
 /** PATCH /doctors/me — partial; only changed fields are sent. */
 export interface UpdateDoctorProfileInput {
   name?: string;

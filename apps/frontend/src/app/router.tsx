@@ -16,6 +16,8 @@ import {
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { DoctorProfileScreen } from '@/features/doctor/doctor-profile-screen';
 import { DoctorScheduleScreen } from '@/features/doctor/doctor-schedule-screen';
+import { DoctorPatientsScreen } from '@/features/doctor/doctor-patients-screen';
+import { DoctorPatientRecordsScreen } from '@/features/doctor/doctor-patient-records-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
@@ -117,9 +119,15 @@ export const router = createBrowserRouter([
           },
           {
             path: '/doctor/patients',
-            element: (
-              <PlaceholderPage title="Patients" description="Your patients and their records." />
-            ),
+            element: <DoctorPatientsScreen />,
+          },
+          {
+            // One patient's records. Keyed by PATIENT PROFILE id — obtained from
+            // the doctor's own appointment feed, never minted by the client. The
+            // records endpoint re-checks the doctor/patient appointment relation
+            // server-side and answers 403 if there is none.
+            path: '/doctor/patients/:patientProfileId',
+            element: <DoctorPatientRecordsScreen />,
           },
           {
             path: '/doctor/consultations',
