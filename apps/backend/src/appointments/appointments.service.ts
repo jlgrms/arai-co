@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AppointmentStatus } from '@prisma/client';
+import { AppointmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
 import { RescheduleAppointmentDto } from './dto/reschedule-appointment.dto';
@@ -23,6 +23,36 @@ const CONFLICT_MESSAGE: Record<ConflictReason, string> = {
   SLOT_ALREADY_CONSUMED: 'This slot has already been booked',
   OVERLAP: 'This slot overlaps an existing booking',
 };
+
+/**
+ * Doctor identity projected onto every appointment read.
+ *
+ * The appointment row itself only carries `doctorProfileId`, but the UI must
+ * show WHO an appointment is with. Resolving the name client-side (by fetching
+ * the discoverable-doctor list and matching ids) was rejected: that list only
+ * contains APPROVED doctors, so an appointment with a doctor who is later
+ * un-approved would render as "unknown" even though the appointment is real and
+ * still stands. Joining here keeps the appointment self-describing at any
+ * approval state.
+ *
+ * NOTE: the relation on Appointment is `doctorProfile`, and the payload carries
+ * that same key — no renaming layer, so what the client reads matches the schema
+ * exactly. Prisma's `AppointmentInclude` rejects readonly nested object types,
+ * hence `satisfies` rather than `as const` on the wrapper.
+ */
+const APPOINTMENT_DOCTOR_SELECT = {
+  id: true,
+  name: true,
+  specialization: true,
+  approvalStatus: true,
+} as const;
+
+/** Every appointment read includes the consulting doctor under `doctorProfile`. */
+const WITH_DOCTOR = {
+  doctorProfile: {
+    select: APPOINTMENT_DOCTOR_SELECT,
+  },
+} satisfies Prisma.AppointmentInclude;
 
 @Injectable()
 export class AppointmentsService {
@@ -51,7 +81,7 @@ export class AppointmentsService {
         status: AppointmentStatus.BOOKED,
         consultationSession: { create: { state: 'SCHEDULED' } },
       },
-      include: { consultationSession: true },
+      include: { consultationSession: true, ...WITH_DOCTOR },
     });
 
     // Sub-item 8: notify BOTH affected parties (S5.2/S5.3). Synchronous writes
@@ -100,6 +130,7 @@ export class AppointmentsService {
         scheduledAt: newSlot.startTime,
         status: AppointmentStatus.RESCHEDULED,
       },
+      include: { ...WITH_DOCTOR },
     });
 
     // Sub-item 8: notify both parties of the new time.
@@ -124,7 +155,13 @@ export class AppointmentsService {
       throw new ForbiddenException('You can only cancel your own appointments');
     }
     if (appt.status === AppointmentStatus.CANCELLED) {
-      return appt; // idempotent
+      // Idempotent: already cancelled. Re-read with the doctor joined so the
+      // response shape matches the normal path (both are consumed by the same
+      // client code).
+      return this.prisma.appointment.findUniqueOrThrow({
+        where: { id: appt.id },
+        include: { ...WITH_DOCTOR },
+      });
     }
 
     // Release the slot link on cancel (availabilityId -> null). The conflict fn
@@ -135,6 +172,7 @@ export class AppointmentsService {
     const updated = await this.prisma.appointment.update({
       where: { id: appt.id },
       data: { status: AppointmentStatus.CANCELLED, availabilityId: null },
+      include: { ...WITH_DOCTOR },
     });
 
     // Sub-item 8: notify both parties of the cancellation. scheduledAt survives
@@ -158,6 +196,7 @@ export class AppointmentsService {
       return this.prisma.appointment.findMany({
         where: { patientProfileId: p.id },
         orderBy: { scheduledAt: 'asc' },
+        include: { ...WITH_DOCTOR },
       });
     }
     if (role === 'DOCTOR') {
@@ -165,13 +204,17 @@ export class AppointmentsService {
       return this.prisma.appointment.findMany({
         where: { doctorProfileId: d.id },
         orderBy: { scheduledAt: 'asc' },
+        include: { ...WITH_DOCTOR },
       });
     }
     throw new ForbiddenException('Unsupported role for this endpoint');
   }
 
   async getOne(userId: string, role: string, appointmentId: string) {
-    const appt = await this.prisma.appointment.findUnique({ where: { id: appointmentId } });
+    const appt = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { ...WITH_DOCTOR },
+    });
     if (!appt) throw new NotFoundException('Appointment not found');
     await this.assertParticipant(userId, role, appt.patientProfileId, appt.doctorProfileId);
     return appt;

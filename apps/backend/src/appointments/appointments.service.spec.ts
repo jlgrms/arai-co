@@ -210,3 +210,122 @@ describe('AppointmentsService notification generation (sub-item 8)', () => {
     expect(rows.every((r: any) => r.type === 'APPOINTMENT_CANCELLED')).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sub-item 4 — every appointment read carries the doctor's identity.
+//
+// The appointment row only stores doctorProfileId, but the UI must show who the
+// appointment is with. These assert the join is actually requested on each read
+// path — a silently missing include would render as "unknown doctor" in the UI
+// while every other test still passed.
+// ---------------------------------------------------------------------------
+describe('AppointmentsService doctor projection (sub-item 4)', () => {
+  // Every read must ask Prisma for the doctor relation under `doctorProfile`
+  // with exactly this field set (no passwordHash, no user internals).
+  const EXPECTED_INCLUDE = {
+    doctorProfile: {
+      select: { id: true, name: true, specialization: true, approvalStatus: true },
+    },
+  };
+
+  const baseAppt = {
+    id: 'appt-1',
+    patientProfileId: 'pat-1',
+    doctorProfileId: 'doc-1',
+    availabilityId: 'slot-1',
+    status: 'BOOKED',
+    scheduledAt: slot('slot-1', 9).startTime,
+  };
+
+  const makePrisma = (over: any = {}) => ({
+    patientProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'pat-1', name: 'Pat' }) },
+    doctorProfile: {
+      findUnique: jest.fn().mockResolvedValue({ id: 'doc-1', userId: 'user-doc', name: 'Dr. D' }),
+    },
+    notification: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    availability: { findUnique: jest.fn().mockResolvedValue(slot('slot-1', 9)) },
+    appointment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(baseAppt),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(baseAppt),
+      create: jest.fn().mockImplementation(({ data }) => ({ id: 'appt-1', ...data })),
+      update: jest.fn().mockImplementation(({ data }) => ({ ...baseAppt, ...data })),
+      ...over,
+    },
+  });
+
+  it('book: requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).book('user-pat', { availabilityId: 'slot-1' });
+    expect(prisma.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('reschedule: requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).reschedule('user-pat', 'appt-1', {
+      availabilityId: 'slot-1',
+    });
+    expect(prisma.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('cancel: requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).cancel('user-pat', 'appt-1');
+    expect(prisma.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('cancel (already cancelled): still returns the doctor projection, not a bare row', async () => {
+    // The idempotent early-return used to hand back the raw row with NO doctor.
+    // Since it is consumed by the same client code as the normal path, its shape
+    // must match or the UI would lose the doctor name on a double-cancel.
+    const prisma: any = makePrisma({
+      findUnique: jest.fn().mockResolvedValue({ ...baseAppt, status: 'CANCELLED', availabilityId: null }),
+    });
+    const svc = new AppointmentsService(prisma);
+    await svc.cancel('user-pat', 'appt-1');
+
+    // No write happens; the doctor-joined re-read is what is returned.
+    expect(prisma.appointment.update).not.toHaveBeenCalled();
+    expect(prisma.appointment.findUniqueOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('listMine (PATIENT): requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).listMine('user-pat', 'PATIENT');
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('listMine (DOCTOR): requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).listMine('user-doc', 'DOCTOR');
+    expect(prisma.appointment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('getOne: requests the doctor projection', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).getOne('user-pat', 'PATIENT', 'appt-1');
+    expect(prisma.appointment.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ include: expect.objectContaining(EXPECTED_INCLUDE) }),
+    );
+  });
+
+  it('never projects user internals (no passwordHash on the doctor)', async () => {
+    const prisma: any = makePrisma();
+    await new AppointmentsService(prisma).getOne('user-pat', 'PATIENT', 'appt-1');
+    const select = prisma.appointment.findUnique.mock.calls[0][0].include.doctorProfile.select;
+    expect(select).not.toHaveProperty('passwordHash');
+    expect(select).not.toHaveProperty('userId');
+  });
+});

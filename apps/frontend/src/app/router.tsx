@@ -16,6 +16,8 @@ import {
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
+import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
+import { MyAppointmentsScreen } from '@/features/patient/my-appointments-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -68,13 +70,14 @@ export const router = createBrowserRouter([
             element: <GuidedMatchingScreen />,
           },
           {
+            // Slot picker + book for one specific doctor. The id is in the URL so
+            // the screen is linkable and survives a refresh.
+            path: '/patient/book/:doctorId',
+            element: <BookAppointmentScreen />,
+          },
+          {
             path: '/patient/appointments',
-            element: (
-              <PlaceholderPage
-                title="My Appointments"
-                description="Upcoming, past, and cancelled consultations."
-              />
-            ),
+            element: <MyAppointmentsScreen />,
           },
           {
             path: '/patient/records',

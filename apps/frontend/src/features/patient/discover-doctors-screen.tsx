@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Link } from 'react-router-dom';
 
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -87,13 +88,9 @@ function DoctorCard({ doctor }: { doctor: DoctorPublic }) {
           variant="outline"
           size="sm"
           className="w-full"
-          // Booking lands in Layer 6 sub-item 4; the button is present so the
-          // card's affordance is complete, but it is explicitly inert rather
-          // than silently doing nothing.
-          disabled
-          title="Booking arrives in the next step"
+          asChild
         >
-          View availability
+          <Link to={`/patient/book/${doctor.id}`}>View availability</Link>
         </Button>
       </CardContent>
     </Card>

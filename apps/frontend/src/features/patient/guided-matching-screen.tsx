@@ -34,9 +34,8 @@ function initialsFor(name: string): string {
 }
 
 /**
- * A doctor inside a specialty group. The CTA is explicitly disabled rather than
- * silently inert: booking is Layer 6 sub-item 4, and a button that looks live
- * but does nothing is worse than one that says it's coming.
+ * A doctor inside a specialty group. Links to the slot picker for that doctor
+ * (sub-item 4) — this is the hand-off from "who should I see" to "when".
  */
 function MatchDoctorCard({ doctor }: { doctor: DoctorPublic }) {
   return (
@@ -56,15 +55,8 @@ function MatchDoctorCard({ doctor }: { doctor: DoctorPublic }) {
           {doctor.biography ?? 'No biography provided yet.'}
         </p>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="w-full"
-          disabled
-          title="Booking arrives in the next step"
-        >
-          Select doctor
+        <Button type="button" variant="outline" size="sm" className="w-full" asChild>
+          <Link to={`/patient/book/${doctor.id}`}>Select doctor</Link>
         </Button>
       </CardContent>
     </Card>
