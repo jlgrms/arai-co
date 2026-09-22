@@ -13,6 +13,7 @@ import {
   NotFoundPlaceholder,
   PublicHomePlaceholder,
 } from '@/features/public/public-screens';
+import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
 import { RequireRole } from './route-guard';
 
 /**
@@ -94,9 +95,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/patient/profile',
-            element: (
-              <PlaceholderPage title="Profile" description="Your personal and medical details." />
-            ),
+            element: <PatientProfileScreen />,
           },
         ],
       },
