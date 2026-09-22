@@ -105,6 +105,7 @@ function deleteById(table, id) {
  *   trackUser: (id: string, email?: string) => void,
  *   trackAppointment: (id: string) => void,
  *   trackSlot: (id: string) => void,
+ *   trackNotification: (id: string) => void,
  *   run: (reason?: string) => Promise<{ reclaimed: number, failed: number }>,
  *   ids: () => object,
  * }}
@@ -113,6 +114,7 @@ export function createReclaimer({ label = 'harness' } = {}) {
   const users = new Map(); // id -> email (email only for the printed report)
   const appointments = new Set();
   const slots = new Set();
+  const notifications = new Set();
   let done = false;
 
   function trackUser(id, email) {
@@ -123,6 +125,9 @@ export function createReclaimer({ label = 'harness' } = {}) {
   }
   function trackSlot(id) {
     if (id) slots.add(id);
+  }
+  function trackNotification(id) {
+    if (id) notifications.add(id);
   }
 
   /**
@@ -137,7 +142,7 @@ export function createReclaimer({ label = 'harness' } = {}) {
     if (done) return { reclaimed: 0, failed: 0, absent: 0 };
     done = true;
 
-    const total = users.size + appointments.size + slots.size;
+    const total = users.size + appointments.size + slots.size + notifications.size;
     if (total === 0) {
       console.log(`\n== Fixture cleanup (${label}, ${reason}) == nothing created, nothing to reclaim`);
       return { reclaimed: 0, failed: 0, absent: 0 };
@@ -151,7 +156,12 @@ export function createReclaimer({ label = 'harness' } = {}) {
     // Order matters: appointments and slots before users. Deleting a user does
     // cascade its appointments away, but a slot is owned by a SEEDED doctor and
     // would survive as an orphan, so it must be removed explicitly either way.
+    // Notification has NO foreign key to Appointment -- it links only to User
+    // (`Notification_userId_fkey`). So deleting an appointment does NOT cascade
+    // its notifications away; they survive as orphans addressed to the seeded
+    // participants. They are tracked explicitly for that reason.
     const plan = [
+      ['Notification', notifications, 'notification'],
       ['Appointment', appointments, 'appointment'],
       ['Availability', slots, 'availability slot'],
       ['User', users.keys(), 'user'],
@@ -204,7 +214,13 @@ export function createReclaimer({ label = 'harness' } = {}) {
     trackUser,
     trackAppointment,
     trackSlot,
+    trackNotification,
     run,
-    ids: () => ({ users: [...users.keys()], appointments: [...appointments], slots: [...slots] }),
+    ids: () => ({
+      users: [...users.keys()],
+      appointments: [...appointments],
+      slots: [...slots],
+      notifications: [...notifications],
+    }),
   };
 }
