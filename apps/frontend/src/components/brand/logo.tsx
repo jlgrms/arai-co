@@ -1,77 +1,62 @@
+import logoLight from '@/assets/arai-logo-mark-light.png';
+import logoOutline from '@/assets/arai-logo-mark-outline.png';
 import { cn } from '@/lib/utils';
 
 /**
- * aray.co! logo mark — minimalist "T^T" crying-eyes icon.
- * Two short scrunched-eye strokes + two teardrops. No face outline, no mouth.
- * Inline SVG (not an emoji character) so it scales and recolors cleanly.
- * Reused across header, sidebar, and footer via <BrandMark />.
+ * ARAI.co logo mark — now a real image asset (see arai-brand-design-reference.md v2).
+ *
+ * Two variants, both transparent PNGs (no colored badge/square backdrop needed):
+ *  - "light"   (default): solid black crying-face lockup, for light/white backgrounds
+ *    (header, footer, public/auth screens).
+ *  - "outline": thin-outline crying-face lockup, for the dark navy sidebar context,
+ *    where a solid black face reads too heavy at small sizes.
+ *
+ * The source art is a wide mark+wordmark lockup (1312x464, ~2.83:1), so we size by
+ * HEIGHT and let the intrinsic aspect ratio determine the width (`w-auto`).
  */
-export function TtcIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 64 64"
-      role="img"
-      aria-label="aray.co! mark"
-      className={cn('h-full w-full', className)}
-      fill="none"
-    >
-      {/* scrunched eyes (left + right), drawn as short angled strokes */}
-      <path d="M16 26 L26 20" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
-      <path d="M48 26 L38 20" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
-      {/* teardrops */}
-      <path
-        d="M18 38 C18 38 13.5 43.5 13.5 46.5 C13.5 49 15.5 51 18 51 C20.5 51 22.5 49 22.5 46.5 C22.5 43.5 18 38 18 38 Z"
-        fill="currentColor"
-      />
-      <path
-        d="M46 38 C46 38 41.5 43.5 41.5 46.5 C41.5 49 43.5 51 46 51 C48.5 51 50.5 49 50.5 46.5 C50.5 43.5 46 38 46 38 Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
+
+const LOGO_SRC = {
+  light: logoLight,
+  outline: logoOutline,
+} as const;
+
+export type LogoVariant = keyof typeof LOGO_SRC;
+
+/** Height classes per context size. Width follows the intrinsic aspect ratio. */
+const HEIGHT_BY_SIZE = {
+  sm: 'h-[26px]',
+  md: 'h-[38px]',
+  lg: 'h-[46px]',
+} as const;
+
+export type LogoSize = keyof typeof HEIGHT_BY_SIZE;
+
+export interface BrandLogoProps {
+  /** Visual variant. Defaults to the light/black mark. */
+  variant?: LogoVariant;
+  /** Render size. Contexts: sidebar ~sm, header ~md/lg, footer smaller. */
+  size?: LogoSize;
+  /** Accessible name; the image is decorative when wrapped in a labelled link. */
+  alt?: string;
+  className?: string;
 }
 
 /**
- * Red rounded-square badge wrapping the mark. The single sanctioned
- * non-CTA use of red: a brand element, not interactive text.
+ * Full ARAI.co lockup (mark + wordmark) rendered from an image asset.
+ * Used across header, sidebar, footer, and public/auth screens.
  */
-export function BrandBadge({
-  className,
-  size = 'md',
-}: {
-  className?: string;
-  size?: 'sm' | 'md' | 'lg';
-}) {
-  const dims = {
-    sm: 'h-8 w-8',
-    md: 'h-10 w-10',
-    lg: 'h-12 w-12',
-  }[size];
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-lg bg-accent p-1.5 text-ink-foreground',
-        dims,
-        className,
-      )}
-    >
-      <TtcIcon />
-    </span>
-  );
-}
-
-/** Full lockup: badge + wordmark. */
 export function BrandLogo({
-  className,
+  variant = 'light',
   size = 'md',
-}: {
-  className?: string;
-  size?: 'sm' | 'md' | 'lg';
-}) {
+  alt = 'ARAI.co',
+  className,
+}: BrandLogoProps) {
   return (
-    <span className={cn('inline-flex items-center gap-2.5', className)}>
-      <BrandBadge size={size} />
-      <span className="font-heading text-lg font-bold tracking-tight text-ink">aray.co!</span>
-    </span>
+    <img
+      src={LOGO_SRC[variant]}
+      alt={alt}
+      className={cn('w-auto select-none', HEIGHT_BY_SIZE[size], className)}
+      draggable={false}
+    />
   );
 }

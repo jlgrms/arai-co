@@ -13,7 +13,7 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: 'border-border bg-surface text-ink',
-        info: 'border-border bg-secondary/30 text-ink',
+        info: 'border-border bg-blue/15 text-ink',
         success: 'border-transparent bg-success-tint text-success-text',
         destructive: 'border-transparent bg-danger-tint text-danger-text',
       },

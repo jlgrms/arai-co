@@ -23,7 +23,7 @@ const buttonVariants = cva(
         // Ink is the default solid/interactive color everywhere.
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
         outline: 'border border-border bg-surface text-ink hover:bg-muted',
-        secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/90',
+        secondary: 'bg-green-tint text-green-text hover:bg-green-tint/80',
         ghost: 'text-ink hover:bg-muted',
         link: 'text-ink underline-offset-4 hover:underline',
         // Red only for the single hero CTA. Large + bold enforced here.

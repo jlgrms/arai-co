@@ -10,7 +10,7 @@
 import { toast } from 'sonner';
 import { AlertTriangle, Bell, Check, Info, Mail, Trash2 } from 'lucide-react';
 
-import { BrandLogo, BrandBadge, TtcIcon } from '@/components/brand/logo';
+import { BrandLogo } from '@/components/brand/logo';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
@@ -69,15 +69,18 @@ import { Toaster } from '@/components/ui/sonner';
 const palette = [
   { name: 'background', hex: '#F2F2F2', var: '--brand-background' },
   { name: 'surface', hex: '#FFFFFF', var: '--brand-surface' },
-  { name: 'ink (foreground)', hex: '#24331B', var: '--brand-ink' },
+  { name: 'ink (foreground)', hex: '#14213D', var: '--brand-ink' },
   { name: 'ink-foreground', hex: '#F2F2F2', var: '--brand-ink-foreground' },
-  { name: 'accent (red)', hex: '#D96868', var: '--brand-accent' },
-  { name: 'sage', hex: '#91AE6E', var: '--brand-sage' },
-  { name: 'deep-green', hex: '#689D4B', var: '--brand-deep-green' },
-  { name: 'success tint', hex: '#E7F0E0', var: '--brand-success-tint' },
-  { name: 'success text', hex: '#3D5C2A', var: '--brand-success-text' },
-  { name: 'danger tint', hex: '#F7DEDE', var: '--brand-danger-tint' },
-  { name: 'danger text', hex: '#8E3A3A', var: '--brand-danger-text' },
+  { name: 'accent (coral)', hex: '#FF7F50', var: '--brand-accent' },
+  { name: 'yellow', hex: '#FFD166', var: '--brand-yellow' },
+  { name: 'green', hex: '#06D6A0', var: '--brand-green' },
+  { name: 'blue', hex: '#118AB2', var: '--brand-blue' },
+  { name: 'green tint', hex: '#D9FAF0', var: '--brand-green-tint' },
+  { name: 'green text', hex: '#0A7F5C', var: '--brand-green-text' },
+  { name: 'success tint', hex: '#D9FAF0', var: '--brand-success-tint' },
+  { name: 'success text', hex: '#0A7F5C', var: '--brand-success-text' },
+  { name: 'danger tint', hex: '#FFE4D9', var: '--brand-danger-tint' },
+  { name: 'danger text', hex: '#B34A1F', var: '--brand-danger-text' },
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -404,24 +407,24 @@ export default function StyleGuidePage() {
         </Section>
 
         <Section title="Logo mark">
-          <div className="flex flex-wrap items-center gap-6 rounded-xl border border-border bg-surface p-6">
+          <div className="flex flex-wrap items-start gap-6 rounded-xl border border-border bg-surface p-6">
             <div>
-              <p className="mb-2 text-xs text-muted-foreground">Lockup</p>
-              <BrandLogo />
+              <p className="mb-2 text-xs text-muted-foreground">Light (default) — header/footer</p>
+              <BrandLogo size="lg" />
             </div>
             <div>
-              <p className="mb-2 text-xs text-muted-foreground">Badge (sm/md/lg)</p>
-              <div className="flex items-center gap-3">
-                <BrandBadge size="sm" />
-                <BrandBadge size="md" />
-                <BrandBadge size="lg" />
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-xs text-muted-foreground">Mark on ink</p>
-              <span className="inline-flex h-12 w-12 items-center justify-center rounded-lg bg-ink p-2 text-ink-foreground">
-                <TtcIcon />
+              <p className="mb-2 text-xs text-muted-foreground">Outline — dark sidebar</p>
+              <span className="inline-flex items-center rounded-lg bg-ink px-3 py-2">
+                <BrandLogo variant="outline" size="lg" />
               </span>
+            </div>
+            <div>
+              <p className="mb-2 text-xs text-muted-foreground">Sizes (sm / md / lg)</p>
+              <div className="flex items-center gap-4">
+                <BrandLogo size="sm" />
+                <BrandLogo size="md" />
+                <BrandLogo size="lg" />
+              </div>
             </div>
           </div>
         </Section>

@@ -13,15 +13,18 @@
   /* ---- Brand palette (source-of-truth hex values) ---- */
   --brand-background: #f2f2f2;
   --brand-surface: #ffffff;
-  --brand-ink: #24331b;
+  --brand-ink: #14213d;
   --brand-ink-foreground: #f2f2f2;
-  --brand-accent: #d96868;
-  --brand-sage: #91ae6e;
-  --brand-deep-green: #689d4b;
-  --brand-success-tint: #e7f0e0;
-  --brand-success-text: #3d5c2a;
-  --brand-danger-tint: #f7dede;
-  --brand-danger-text: #8e3a3a;
+  --brand-accent: #ff7f50;
+  --brand-yellow: #ffd166;
+  --brand-green: #06d6a0;
+  --brand-blue: #118ab2;
+  --brand-green-tint: #d9faf0;
+  --brand-green-text: #0a7f5c;
+  --brand-success-tint: #d9faf0;
+  --brand-success-text: #0a7f5c;
+  --brand-danger-tint: #ffe4d9;
+  --brand-danger-text: #b34a1f;
 
   /* ---- shadcn semantic tokens, bound to brand palette ---- */
   --radius: 0.75rem;
@@ -40,8 +43,8 @@
   --primary: var(--brand-ink);
   --primary-foreground: var(--brand-ink-foreground);
 
-  --secondary: var(--brand-sage);
-  --secondary-foreground: var(--brand-ink);
+  --secondary: var(--brand-green-tint);
+  --secondary-foreground: var(--brand-green-text);
 
   --muted: #e9e9e6;
   --muted-foreground: #5b6651;
@@ -90,12 +93,15 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Brand utilities (bg-ink, text-sage, bg-danger-tint, ...) */
+  /* Brand utilities (bg-ink, text-green-tint, bg-danger-tint, ...) */
   --color-surface: var(--brand-surface);
   --color-ink: var(--brand-ink);
   --color-ink-foreground: var(--brand-ink-foreground);
-  --color-sage: var(--brand-sage);
-  --color-deep-green: var(--brand-deep-green);
+  --color-yellow: var(--brand-yellow);
+  --color-green: var(--brand-green);
+  --color-blue: var(--brand-blue);
+  --color-green-tint: var(--brand-green-tint);
+  --color-green-text: var(--brand-green-text);
   --color-danger-tint: var(--brand-danger-tint);
   --color-danger-text: var(--brand-danger-text);
   --color-success-tint: var(--brand-success-tint);
