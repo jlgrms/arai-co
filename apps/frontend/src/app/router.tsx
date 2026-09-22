@@ -14,6 +14,7 @@ import {
   PublicHomePlaceholder,
 } from '@/features/public/public-screens';
 import { PatientProfileScreen } from '@/features/patient/patient-profile-screen';
+import { DoctorProfileScreen } from '@/features/doctor/doctor-profile-screen';
 import { DiscoverDoctorsScreen } from '@/features/patient/discover-doctors-screen';
 import { GuidedMatchingScreen } from '@/features/patient/guided-matching-screen';
 import { BookAppointmentScreen } from '@/features/patient/book-appointment-screen';
@@ -135,9 +136,7 @@ export const router = createBrowserRouter([
           },
           {
             path: '/doctor/profile',
-            element: (
-              <PlaceholderPage title="Profile" description="Your biography and specialization." />
-            ),
+            element: <DoctorProfileScreen />,
           },
         ],
       },

@@ -37,6 +37,9 @@ const appt = (over: Partial<Appointment>): Appointment => ({
   // The backend joins the consultation session onto every appointment read so
   // the row can link into the consultation workspace (sub-item 5).
   consultationSession: { id: 'sess-1', state: 'SCHEDULED' },
+  // Both sides of the relation are joined on every read, so the same payload
+  // serves the patient and doctor screens (Layer 7 sub-item 3).
+  patientProfile: { id: 'pat-1', name: 'Jordan Lee' },
   ...over,
 });
 
