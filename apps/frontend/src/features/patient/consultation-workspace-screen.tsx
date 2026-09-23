@@ -1,15 +1,27 @@
 import * as React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import {
+  CheckCircle2,
+  CircleDashed,
+  FileText,
+  Hourglass,
+  MessageSquareText,
+  Video,
+  type LucideIcon,
+} from 'lucide-react';
 
+import { EmptyState } from '@/components/layout/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConsultationStateBadge } from '@/components/ui/status-badge';
+import { TintedIcon } from '@/components/ui/tinted-icon';
 import { api, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { parseBookingError, type ParsedBookingError } from './booking-api-errors';
 import { formatAppointmentWhen } from './booking-types';
 import {
@@ -20,10 +32,64 @@ import {
   presenceOf,
   stateHint,
   stateLabel,
-  stateVariant,
   type ConsultationRecords,
   type ConsultationSession,
+  type ConsultationState,
 } from './consultation-types';
+
+/**
+ * Icon for a session state, mirroring CONSULTATION_STATE_META's glyph choices so
+ * the big status mark and the badge next to it never disagree. `JOINED` is
+ * handled by the caller (it renders as the waiting mark instead).
+ */
+function stateIconFor(state: ConsultationState): LucideIcon {
+  switch (state) {
+    case 'IN_PROGRESS':
+      return Video;
+    case 'COMPLETED':
+      return CheckCircle2;
+    case 'JOINED':
+      return Hourglass;
+    default:
+      return CircleDashed;
+  }
+}
+
+/**
+ * One participant's presence. The dot is the at-a-glance channel and the label
+ * is the explicit one — v3 forbids colour being the only carrier, so a present
+ * participant is never communicated by green alone.
+ */
+function PresenceRow({
+  role,
+  present,
+  presentLabel,
+  absentLabel,
+  waiting = false,
+}: {
+  role: string;
+  present: boolean;
+  presentLabel: string;
+  absentLabel: string;
+  /** Marks the doctor's row while the patient is waiting — softens it to amber. */
+  waiting?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4">
+      <span
+        aria-hidden
+        className={cn(
+          'size-2.5 shrink-0 rounded-full',
+          present ? 'bg-green-text' : waiting ? 'bg-yellow' : 'bg-border',
+        )}
+      />
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-ink">{role}</p>
+        <p className="text-sm text-muted-foreground">{present ? presentLabel : absentLabel}</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Layer 6 sub-item 5 — Consultation workspace, PATIENT side.
@@ -204,8 +270,15 @@ export function ConsultationWorkspaceScreen() {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="font-heading text-lg">{stateLabel(session.state)}</CardTitle>
-            <Badge variant={stateVariant(session.state)}>{stateLabel(session.state)}</Badge>
+            <div className="flex items-center gap-3">
+              <TintedIcon
+                icon={waiting ? Hourglass : stateIconFor(session.state)}
+                tone={waiting ? 'yellow' : session.state === 'IN_PROGRESS' ? 'mint' : 'blue'}
+                size="md"
+              />
+              <CardTitle className="font-heading text-lg">{stateLabel(session.state)}</CardTitle>
+            </div>
+            <ConsultationStateBadge state={session.state} />
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -214,18 +287,19 @@ export function ConsultationWorkspaceScreen() {
           {/* Participant presence. Shown as two explicit rows rather than a
               single "waiting" line so it is obvious WHICH side is missing. */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-input p-4">
-              <p className="text-sm font-medium text-ink">You</p>
-              <p className="text-sm text-muted-foreground">
-                {presenceOf(session).patientPresent ? 'In the room' : 'Not yet joined'}
-              </p>
-            </div>
-            <div className="rounded-md border border-input p-4">
-              <p className="text-sm font-medium text-ink">Your doctor</p>
-              <p className="text-sm text-muted-foreground">
-                {doctorPresent ? 'In the room' : 'Has not arrived yet'}
-              </p>
-            </div>
+            <PresenceRow
+              role="You"
+              present={presenceOf(session).patientPresent}
+              presentLabel="In the room"
+              absentLabel="Not yet joined"
+            />
+            <PresenceRow
+              role="Your doctor"
+              present={doctorPresent}
+              presentLabel="In the room"
+              absentLabel="Has not arrived yet"
+              waiting={waiting}
+            />
           </div>
 
           {joinError && (
@@ -253,11 +327,21 @@ export function ConsultationWorkspaceScreen() {
             </Button>
           </div>
 
+          {/* The waiting state is the COMMON case, not a fault — so it gets a
+              warm, reassuring treatment instead of a bare sentence of grey
+              text, which read as an apology for a bug. Wording stays calm and
+              direct (clinical context, per v3) — no jokes, just warmth. */}
           {waiting && (
-            <p className="text-sm text-muted-foreground">
-              Nothing is wrong — your doctor simply has not joined yet. You can
-              leave and come back; this room stays open.
-            </p>
+            <div className="flex items-start gap-3 rounded-xl border border-yellow/40 bg-yellow/15 p-4">
+              <TintedIcon icon={Hourglass} tone="yellow" size="sm" className="mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-ink">Naghihintay pa si Doc</p>
+                <p className="text-sm text-muted-foreground">
+                  Nothing is wrong — your doctor simply has not joined yet. You can
+                  stay on this page, or leave and come back; this room stays open.
+                </p>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -265,9 +349,12 @@ export function ConsultationWorkspaceScreen() {
       {/* ---- Records (only once the session is COMPLETED) ------------------ */}
       {finished && (
         <div className="space-y-4">
-          <h2 className="font-heading text-lg font-semibold text-ink">
-            Consultation notes &amp; prescriptions
-          </h2>
+          <div className="flex items-center gap-3">
+            <TintedIcon icon={MessageSquareText} tone="mint" size="md" />
+            <h2 className="font-heading text-lg font-semibold text-ink">
+              Consultation notes &amp; prescriptions
+            </h2>
+          </div>
 
           {recordsLoading ? (
             <Card>
@@ -287,16 +374,12 @@ export function ConsultationWorkspaceScreen() {
               </CardContent>
             </Card>
           ) : hasNoRecords(records) ? (
-            <Card>
-              <CardContent className="px-6 py-10 text-center">
-                <p className="font-heading text-base font-semibold text-ink">
-                  No notes were recorded
-                </p>
-                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                  This consultation finished without a note or prescription.
-                </p>
-              </CardContent>
-            </Card>
+            <EmptyState
+              icon={FileText}
+              eyebrow="Walang notes"
+              title="No notes were recorded"
+              description="This consultation finished without a note or prescription. That happens sometimes — for example, if it was a quick follow-up."
+            />
           ) : (
             <div className="space-y-4">
               {records?.notes.map((note) => (
