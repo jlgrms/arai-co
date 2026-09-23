@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
+import { FileHeart, HeartPulse, Stethoscope } from 'lucide-react';
 
+import { EmptyState } from '@/components/layout/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TintedIcon } from '@/components/ui/tinted-icon';
 import { api } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { parseBookingError, type ParsedBookingError } from './booking-api-errors';
 import {
   countEntries,
@@ -106,36 +110,33 @@ export function MedicalRecordsScreen() {
       ) : hasNoRecords(records) ? (
         /* The empty state is a NORMAL case, not an edge case: a patient who has
            booked but never completed a consultation lands here, and so does
-           every newly registered patient. It therefore has to explain what will
-           appear and why nothing has yet, rather than looking like a failure. */
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
-            <div className="space-y-1">
-              <p className="font-heading text-base font-semibold text-ink">
-                No records yet
-              </p>
-              <p className="mx-auto max-w-md text-sm text-muted-foreground">
-                Your notes and prescriptions appear here once a consultation is
-                completed. If you have an upcoming appointment, records will show
-                up after it finishes.
-              </p>
-            </div>
+           every newly registered patient. Empty records mean nothing bad has
+           happened yet — so the tone is reassuring ("malusog ka pa") rather
+           than the flat "no data" it used to be, while the explanation below it
+           stays direct about what will appear and when. */
+        <EmptyState
+          icon={HeartPulse}
+          eyebrow="Malusog ka pa"
+          title="Wala ka pang records"
+          description="Your notes and prescriptions appear here once a consultation is completed. If you have an upcoming appointment, records will show up after it finishes."
+          action={
             <div className="flex flex-wrap justify-center gap-3">
               <Button type="button" variant="cta" asChild>
-                <Link to="/patient/appointments">My appointments</Link>
-              </Button>
-              <Button type="button" variant="outline" asChild>
                 <Link to="/patient/book">Book an appointment</Link>
               </Button>
+              <Button type="button" variant="outline" asChild>
+                <Link to="/patient/appointments">My appointments</Link>
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : (
         <>
           {/* Summary strip. A long history is hard to survey, so state the size
               and breadth up front instead of making the patient count cards. */}
           <div className="flex flex-wrap gap-3">
-            <Badge variant="secondary">
+            <Badge variant="secondary" className="gap-1.5">
+              <Stethoscope className="size-3.5 shrink-0" aria-hidden />
               {records.length} completed consultation{records.length === 1 ? '' : 's'}
             </Badge>
             <Badge variant="secondary">
@@ -148,17 +149,42 @@ export function MedicalRecordsScreen() {
             ))}
           </div>
 
-          <div className="space-y-8">
+          <div className="space-y-10">
             {years.map((group) => (
-              <section key={group.year} className="space-y-4">
-                <h2 className="font-heading text-lg font-semibold text-ink">{group.year}</h2>
-                <ul className="space-y-4">
-                  {group.records.map((record) => (
-                    <li key={record.sessionId}>
-                      <RecordCard record={record} />
-                    </li>
-                  ))}
-                </ul>
+              <section key={group.year} className="space-y-5">
+                {/* Year marker with the same tinted-icon treatment used for
+                    section headings across the rest of the pass. */}
+                <div className="flex items-center gap-3">
+                  <TintedIcon icon={FileHeart} tone="mint" size="md" />
+                  <h2 className="font-heading text-lg font-semibold text-ink">{group.year}</h2>
+                  <Badge variant="muted">
+                    {group.records.length}{' '}
+                    {group.records.length === 1 ? 'consultation' : 'consultations'}
+                  </Badge>
+                </div>
+
+                {/* Timeline rail. The connector runs down the left with a node
+                    per visit, so the history reads as a sequence of events in
+                    time rather than a stack of unrelated cards. It is the
+                    vertical counterpart to the booking flow's JourneyProgress,
+                    using the same coral node + ink heading language. */}
+                <ol className="relative ml-1 space-y-4 border-l-2 border-border pl-6">
+                  {group.records.map((record, index) => {
+                    const isLast = index === group.records.length - 1;
+                    return (
+                      <li key={record.sessionId} className="relative">
+                        <span
+                          aria-hidden
+                          className={cn(
+                            'absolute -left-[31px] top-1.5 size-3.5 rounded-full border-2 bg-surface',
+                            isLast ? 'border-accent' : 'border-border',
+                          )}
+                        />
+                        <RecordCard record={record} />
+                      </li>
+                    );
+                  })}
+                </ol>
               </section>
             ))}
           </div>
