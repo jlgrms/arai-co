@@ -14,7 +14,10 @@ app = "telehealth-frontend"
 primary_region = "sin"
 
 [build]
-  dockerfile = "Dockerfile"
+  # Path is relative to the build context, which is the repo root (see the note
+  # above). It must include the apps/frontend/ prefix: a bare "Dockerfile" would
+  # resolve to <repo-root>/Dockerfile, which does not exist.
+  dockerfile = "apps/frontend/Dockerfile"
 
   [build.args]
     # REPLACE with the real backend URL after the backend app is created.

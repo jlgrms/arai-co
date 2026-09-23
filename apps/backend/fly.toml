@@ -30,7 +30,10 @@ app = 'telehealth-backend-dry-mountain-2145'
 primary_region = 'sin'
 
 [build]
-  dockerfile = 'Dockerfile'
+  # Path is relative to the build context, which is the repo root (see the
+  # banner above). It must include the apps/backend/ prefix: a bare
+  # 'Dockerfile' would resolve to <repo-root>/Dockerfile, which does not exist.
+  dockerfile = 'apps/backend/Dockerfile'
 
 [deploy]
   # Run Prisma via the CLI already baked into the image's node_modules. Do NOT
