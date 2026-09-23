@@ -22,6 +22,7 @@ Built as a pnpm monorepo with a NestJS + Prisma API and a Vite + React web clien
   - [Installation](#installation)
   - [Environment Variables](#environment-variables)
   - [Running Locally](#running-locally)
+  - [Demo Accounts](#demo-accounts)
   - [Running with Docker](#running-with-docker)
 - [Testing](#testing)
 - [Project Structure](#project-structure)
@@ -154,6 +155,42 @@ pnpm dev
 | Backend API | http://localhost:3000 |
 
 Run a single app with `pnpm dev:backend` or `pnpm dev:frontend`.
+
+### Demo Accounts
+
+The seed script (`apps/backend/prisma/seed.ts`) creates ready-to-use accounts so
+the app is demoable immediately after seeding. All data is **fictional and for
+local development only**.
+
+| Role        | Email                    | Password          |
+| ----------- | ------------------------ | ----------------- |
+| **Patient** | `jordan.lee@example.com` | `PatientPass123!` |
+| **Doctor**  | `dr.patel@example.com`   | `DoctorPass123!`  |
+| **Admin**   | `admin@example.com`      | `AdminPass123!`   |
+
+**Other seeded accounts** (same shared password per role):
+
+| Role    | Email                           | Notes                                                 |
+| ------- | ------------------------------- | ----------------------------------------------------- |
+| Patient | `sam.rivera@example.com`        | No consultation history — demonstrates empty states   |
+| Patient | `alex.kim@example.com`          | No consultation history — demonstrates empty states   |
+| Doctor  | `dr.chen@example.com`           | Cardiology, APPROVED                                  |
+| Doctor  | `dr.okafor@example.com`         | Dermatology, APPROVED                                 |
+| Doctor  | `dr.reyes@example.com`          | General Medicine, APPROVED (second in specialty)      |
+| Doctor  | `dr.nguyen@example.com`         | Pediatrics, APPROVED                                  |
+| Doctor  | `dr.silva@example.com`          | Psychiatry, APPROVED                                  |
+| Doctor  | `dr.test001@example.com` …      | 70 generated doctors, for pagination and scale demos  |
+| Doctor  | `dr.pending@example.com`        | PENDING — populates the admin Doctor Review queue     |
+| Doctor  | `dr.rejected@example.com`       | REJECTED — exercises the rejected review state        |
+| Patient | `suspended.patient@example.com` | SUSPENDED — valid credentials return **403** on login |
+
+> **Password convention:** every patient shares `PatientPass123!`, every doctor
+> shares `DoctorPass123!`, and the admin uses `AdminPass123!`.
+
+**Where to start:** sign in as `jordan.lee@example.com` — that patient carries
+three completed consultations with notes and prescriptions plus one upcoming
+session, so the consultation workspace and medical records views are populated.
+The other patients are intentionally empty to make the empty states reachable.
 
 ### Running with Docker
 
