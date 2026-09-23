@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import { CalendarPlus } from 'lucide-react';
 
+import { EmptyState } from '@/components/layout/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   AlertDialog,
@@ -15,11 +17,18 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AppointmentStatusBadge,
+  ConsultationStateBadge,
+  CONSULTATION_STATE_META,
+  type ConsultationState,
+} from '@/components/ui/status-badge';
+import { TintedIcon } from '@/components/ui/tinted-icon';
 import { api, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 import { parseBookingError, type ParsedBookingError } from './booking-api-errors';
 import {
   formatAppointmentWhen,
@@ -44,25 +53,108 @@ function initialsFor(name: string): string {
 }
 
 /**
- * Status chip. Colour carries meaning consistently with the rest of the app:
- * success = will happen, danger = did not/will not, muted = history.
+ * Status badge for an appointment.
+ *
+ * Delegates to the shared StatusBadge, which pairs every tint with an icon —
+ * v3 forbids colour as the sole carrier of state, and these four states are
+ * exactly the kind of thing a patient needs to be able to tell apart at a
+ * glance without relying on red/green discrimination.
  */
 function StatusBadge({ status }: { status: AppointmentStatus }) {
-  const variant =
-    status === 'BOOKED' || status === 'RESCHEDULED'
-      ? 'success'
-      : status === 'CANCELLED'
-        ? 'danger'
-        : 'muted';
-  const label =
-    status === 'BOOKED'
-      ? 'Scheduled'
-      : status === 'RESCHEDULED'
-        ? 'Rescheduled'
-        : status === 'CANCELLED'
-          ? 'Cancelled'
-          : 'Completed';
-  return <Badge variant={variant}>{label}</Badge>;
+  return <AppointmentStatusBadge status={status} />;
+}
+
+/**
+ * The most relevant upcoming appointment, surfaced as a banner above the list.
+ *
+ * WHY IT EXISTS: the list is a record; this is the answer to "what do I
+ * actually need to do next". A patient opening this screen during a
+ * consultation should not have to scan a list to find the join button.
+ *
+ * The banner's appearance is driven by the consultation session state when
+ * there is one, because that is the finer-grained truth — an appointment can be
+ * BOOKED while its session is JOINED or IN_PROGRESS. Where there is no session
+ * yet, it falls back to the appointment status. Either way the tone comes from
+ * the shared status maps, so this banner can never disagree with the badge on
+ * the card below it.
+ *
+ * `now` is a parameter, not read from the clock inline, so the "soon" logic is
+ * testable and does not change mid-render.
+ */
+function UpcomingBanner({ appointment, now }: { appointment: Appointment; now: number }) {
+  const session = appointment.consultationSession;
+  const startsAt = new Date(appointment.scheduledAt).getTime();
+  const startsInMs = startsAt - now;
+  // "Soon" = inside the next 48h. Beyond that the banner is informational only
+  // and must not shout, or it competes with whatever the patient is doing now.
+  const soon = startsInMs > 0 && startsInMs < 48 * 60 * 60 * 1000;
+  const imminent = startsInMs > 0 && startsInMs < 60 * 60 * 1000;
+
+  const state: ConsultationState = session?.state ?? 'SCHEDULED';
+  const meta = CONSULTATION_STATE_META[state];
+
+  // Tint the banner by state. Nothing here uses coral as a fill (v3 forbids it
+  // as a large-section background); the coral is confined to the CTA button.
+  const shell =
+    state === 'IN_PROGRESS'
+      ? 'border-green-text/30 bg-green-tint'
+      : state === 'JOINED'
+        ? 'border-blue/30 bg-blue/10'
+        : 'border-border bg-surface';
+
+  return (
+    <section
+      aria-labelledby="next-appointment-heading"
+      className={cn('rounded-xl border p-5 sm:p-6', shell)}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3.5">
+          <TintedIcon icon={meta.icon} tone={state === 'JOINED' ? 'blue' : 'mint'} size="lg" />
+          <div className="min-w-0 space-y-1.5">
+            <p
+              id="next-appointment-heading"
+              className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground"
+            >
+              {state === 'IN_PROGRESS'
+                ? 'Happening now'
+                : state === 'JOINED'
+                  ? 'Naghihintay si Doc'
+                  : 'Next up'}
+            </p>
+            <p className="font-heading text-lg font-semibold leading-tight text-ink">
+              {appointment.doctorProfile.name}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {appointment.doctorProfile.specialization}
+              {' · '}
+              {formatAppointmentWhen(appointment.scheduledAt)}
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <ConsultationStateBadge state={state} />
+              {imminent && state === 'SCHEDULED' && (
+                <span className="text-xs font-semibold text-danger-text">
+                  Malapit na — prepare na.
+                </span>
+              )}
+              {soon && !imminent && state === 'SCHEDULED' && (
+                <span className="text-xs font-medium text-muted-foreground">
+                  Malapit na ito.
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {appointment.consultationSession && isActionable(appointment.status) && (
+          <Button type="button" variant="cta" asChild>
+            <Link to={`/patient/consultations/${appointment.consultationSession.id}`}>
+              {state === 'JOINED' || state === 'IN_PROGRESS' ? 'Balik sa room' : 'Join consultation'}
+            </Link>
+          </Button>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function AppointmentCard({
@@ -383,6 +475,10 @@ export function MyAppointmentsScreen() {
   }
 
   const { upcoming, past } = partitionAppointments(appointments);
+  // Read once per render rather than per-branch, so the banner's "soon"
+  // thresholds cannot disagree with each other within one paint.
+  const now = Date.now();
+  const nextUp = upcoming[0] ?? null;
 
   return (
     <div className="space-y-6">
@@ -424,24 +520,24 @@ export function MyAppointmentsScreen() {
       ) : loading ? (
         <ListSkeleton />
       ) : appointments.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-4 px-6 py-12 text-center">
-            <div className="space-y-1">
-              <p className="font-heading text-base font-semibold text-ink">
-                No appointments yet
-              </p>
-              <p className="max-w-md text-sm text-muted-foreground">
-                When you book a consultation it will appear here, along with any
-                notes and prescriptions from it.
-              </p>
-            </div>
+        <EmptyState
+          icon={CalendarPlus}
+          eyebrow="Wala pang booking"
+          title="Wala ka pang appointment"
+          description="When you book a consultation it will appear here, kasama na ang notes at prescriptions from it. Tara, mag-book na tayo?"
+          action={
             <Button type="button" variant="cta" asChild>
               <Link to="/patient/book">Book your first appointment</Link>
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : (
         <div className="space-y-8" aria-live="polite">
+          {/* The single most relevant upcoming appointment, promoted out of the
+              list. Hidden when the patient has nothing scheduled, so the
+              "Nothing scheduled" line below is not contradicted by a banner. */}
+          {nextUp && <UpcomingBanner appointment={nextUp} now={now} />}
+
           <section className="space-y-4">
             <h2 className="font-heading text-lg font-semibold text-ink">Upcoming</h2>
             {upcoming.length === 0 ? (
