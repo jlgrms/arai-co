@@ -28,6 +28,12 @@ const BCRYPT_ROUNDS = 10;
 //     dr.nguyen@example.com   Dr. Linh Nguyen    Pediatrics      APPROVED
 //     dr.silva@example.com    Dr. Mateo Silva    Psychiatry      APPROVED
 //
+//   BULK APPROVED DOCTORS (same password — 50 generated, for scale/pagination)
+//     dr.test001@example.com … dr.test050@example.com
+//     Names are drawn deterministically from Filipino given/surname pools; bios
+//     are templated per specialty. Specialties cycle across the five above.
+//     Emails are zero-padded to three digits (dr.test001, not dr.test1).
+//
 //   UNREVIEWED DOCTORS (same password — the admin Doctor Review queue fixtures)
 //     dr.pending@example.com   Dr. Nadia Haddad   Neurology     PENDING
 //     dr.rejected@example.com  Dr. Victor Osei    Orthopedics   REJECTED
@@ -116,6 +122,96 @@ async function main(): Promise<void> {
         approvalStatus: ApprovalStatus.APPROVED,
       },
     });
+    doctorProfiles.push(profile);
+  }
+
+  // -------------------------------------------------------------------------
+  // BULK APPROVED DOCTORS — 50 generated, for scale/pagination demos.
+  //
+  // WHY APPEND-ONLY: `doctorProfiles` is indexed POSITIONALLY further down this
+  // file — `consultationSeeds` reads `doctorProfiles[2]`, `[5]` and `[1]`, and
+  // the upcoming-consultation block reads `doctorProfiles[2]` directly. Those
+  // are ABSOLUTE indices, so this block may only PUSH onto the end of the array.
+  // Inserting, prepending, sorting, or splicing anywhere above would silently
+  // repoint Jordan's three consultations and their notes/prescriptions, and the
+  // seeded upcoming session, at the wrong doctors — with no error, because every
+  // index would still be in range.
+  //
+  // WHY BEFORE THE AVAILABILITY LOOP: that loop iterates `doctorProfiles` and
+  // creates 5 weekday slots per entry. Pushing here means these 50 inherit the
+  // existing slot pattern for free rather than duplicating that logic, and they
+  // land AFTER the six originals, so the original doctors' slots are unchanged.
+  //
+  // Scope: APPROVED only. The PENDING/REJECTED review-queue fixtures and the
+  // SUSPENDED login fixture are deliberately left alone — those states exist to
+  // make specific UI branches reachable and inflating them would change what
+  // those screens demonstrate.
+  //
+  // Note this ADDS 50 x 5 = 250 availability rows on top of the documented
+  // baseline. Anything asserting a hard doctor or slot count must be updated.
+  // -------------------------------------------------------------------------
+  const BULK_DOCTOR_COUNT = 50;
+
+  // Short templated bios, one per specialty. Kept generic on purpose — these are
+  // backdrop volume, not characters, so no bio should claim a specific
+  // credential that would look odd repeated.
+  const bulkSpecialtyBios: Record<string, string> = {
+    Cardiology:
+      'Cardiologist providing outpatient assessment for chest pain, palpitations, and blood-pressure management.',
+    Dermatology:
+      'Dermatologist treating common skin complaints including acne, eczema, and rashes.',
+    'General Medicine':
+      'Primary-care physician for general consultations, minor illness, and long-term condition follow-up.',
+    Pediatrics:
+      'Pediatrician providing routine care and assessment for infants, children, and adolescents.',
+    Psychiatry:
+      'Psychiatrist supporting patients with anxiety, low mood, and sleep difficulties.',
+  };
+
+  // Realistic Filipino given/surname pools. Combined deterministically below so
+  // the generated set is stable across re-seeds (a random pick would churn the
+  // fixtures on every seed and make any name-based assertion flaky).
+  const filipinoFirstNames = [
+    'Maria', 'Jose', 'Ana', 'Ramon', 'Lourdes', 'Carlos', 'Teresa', 'Miguel',
+    'Rosario', 'Antonio', 'Cristina', 'Eduardo', 'Josefina', 'Ricardo',
+    'Bella', 'Fernando', 'Corazon', 'Alfredo', 'Marilou', 'Rogelio',
+    'Editha', 'Benigno', 'Luzviminda', 'Arturo', 'Remedios', 'Danilo',
+  ];
+  const filipinoLastNames = [
+    'Santos', 'Reyes', 'Cruz', 'Bautista', 'Ocampo', 'Garcia', 'Mendoza',
+    'Torres', 'Villanueva', 'Aquino', 'Castillo', 'Ramos', 'Del Rosario',
+    'Mercado', 'Salazar', 'Domingo', 'Navarro', 'Gutierrez',
+    'Fernandez', 'Pascual',
+  ];
+
+  const bulkSpecialties = Object.keys(bulkSpecialtyBios);
+  for (let i = 0; i < BULK_DOCTOR_COUNT; i++) {
+    // Deterministic spread across specialties, then across the name pools, so a
+    // given index always yields the same doctor. Coprime strides keep the pairs
+    // from cycling together and repeating a full name early.
+    const specialization = bulkSpecialties[i % bulkSpecialties.length]!;
+    const first = filipinoFirstNames[(i * 7) % filipinoFirstNames.length]!;
+    const last = filipinoLastNames[(i * 3) % filipinoLastNames.length]!;
+    const num = String(i + 1).padStart(3, '0');
+
+    const user = await prisma.user.create({
+      data: {
+        email: `dr.test${num}@example.com`,
+        passwordHash: doctorPasswordHash,
+        role: Role.DOCTOR,
+        accountState: AccountState.ACTIVE,
+      },
+    });
+    const profile = await prisma.doctorProfile.create({
+      data: {
+        userId: user.id,
+        name: `Dr. ${first} ${last}`,
+        biography: bulkSpecialtyBios[specialization]!,
+        specialization,
+        approvalStatus: ApprovalStatus.APPROVED,
+      },
+    });
+    // PUSH ONLY — see the positional warning above.
     doctorProfiles.push(profile);
   }
 
