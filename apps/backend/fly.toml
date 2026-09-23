@@ -2,6 +2,29 @@
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
+# ============================================================================
+# !! BUILD CONTEXT IS THE REPO ROOT, NOT apps/backend !!
+# ============================================================================
+# This is a monorepo: the Dockerfile copies pnpm-workspace.yaml, the root
+# lockfile, and apps/frontend/package.json, because a pnpm workspace install
+# needs every member manifest present. Deploy from the repo root:
+#
+#   fly deploy -c apps/backend/fly.toml
+#
+# Fly has NO fly.toml field for the build context — `[build] dockerfile` only
+# sets the Dockerfile path, and its docs explicitly note that it "will not
+# change the Docker context path, which is set to the project root directory by
+# default". The context is whatever directory `fly deploy` is invoked from.
+# So this warning can only live as a comment, and it cannot be enforced by the
+# config. If `fly launch` ever regenerates this file, RE-ADD THIS COMMENT —
+# without it, running `fly deploy` from apps/backend/ fails on the Dockerfile's
+# COPY of the root package.json ("file not found in build context").
+#
+# Secrets to set before the first deploy (never committed):
+#   fly secrets set DATABASE_URL=... JWT_SECRET=... FRONTEND_URL=https://<frontend>.fly.dev
+#   fly secrets set DEEPSEEK_API_KEY=...   # optional; AI matching degrades gracefully
+# ============================================================================
+#
 
 app = 'telehealth-backend-dry-mountain-2145'
 primary_region = 'sin'
