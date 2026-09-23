@@ -3,8 +3,15 @@
 // No service/business logic in this layer — schema + seed only.
 
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+  provider = "prisma-client-js"
+  // amd64 AND arm64 musl targets: Docker/Alpine builds (and Fly.io, which
+  // defaults to amd64) need the matching engine binary, and the generated client
+  // is not committed. `native` covers local macOS dev. Without the amd64 musl
+  // entry, a Fly amd64 machine starts and then fails at runtime with "Query
+  // engine binary for current platform ... could not be found".
+  // NOTE: must stay on ONE line — Prisma's generator block does not accept a
+  // multi-line array literal here.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {

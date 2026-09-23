@@ -53,6 +53,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY --from=build /app/apps/backend/dist ./apps/backend/dist
 COPY apps/backend/package.json ./apps/backend/package.json
+# The schema and migration history must be present in the runtime image: Fly's
+# release_command runs `prisma migrate deploy` INSIDE this container before the
+# new version takes traffic. Without prisma/ that command has no schema and no
+# migrations to apply, and the deploy fails at the release step.
+COPY apps/backend/prisma ./apps/backend/prisma
 WORKDIR /app/apps/backend
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

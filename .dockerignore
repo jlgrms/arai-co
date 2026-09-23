@@ -1,0 +1,9 @@
+# Keep the Fly/Docker build context small and reproducible.
+.git
+**/node_modules
+**/dist
+**/.DS_Store
+apps/*/.env
+.env
+tmp
+docs

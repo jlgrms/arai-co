@@ -1,0 +1,44 @@
+# Fly.io config for the frontend (Vite + React, served by nginx).
+#
+# Pre-staged so `fly launch` has little to guess.
+#
+# IMPORTANT — the VITE_API_BASE_URL build arg below must be the BACKEND's public
+# URL before you deploy. Vite inlines import.meta.env.* at build time, so this is
+# baked into the bundle; changing it later requires a rebuild, not a restart.
+# Set it to https://<backend-app>.fly.dev once the backend app exists.
+#
+# Launch from the repo root (the Dockerfile needs the workspace files):
+#   fly launch --dockerfile apps/frontend/Dockerfile --config apps/frontend/fly.toml
+
+app = "telehealth-frontend"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  [build.args]
+    # REPLACE with the real backend URL after the backend app is created.
+    # Keep it in sync with the backend's FRONTEND_URL secret, which is the
+    # other half of the CORS handshake.
+    VITE_API_BASE_URL = "https://telehealth-backend.fly.dev"
+
+[env]
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

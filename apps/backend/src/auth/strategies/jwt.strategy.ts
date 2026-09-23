@@ -6,6 +6,7 @@ import { AccountState } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { resolveJwtSecret } from '../jwt-secret';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -16,7 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET') ?? 'change-me-in-a-real-deployment',
+      secretOrKey: resolveJwtSecret(config),
     });
   }
 

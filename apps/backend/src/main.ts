@@ -3,12 +3,31 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
+/**
+ * Allowed browser origins, from `FRONTEND_URL`.
+ *
+ * In production the frontend is a separate Fly app on a different hostname, so
+ * the old permissive `origin: true` (reflect whatever asks) has to become an
+ * explicit allowlist. `FRONTEND_URL` is a comma-separated list so a staging
+ * origin can sit alongside production without another env var.
+ *
+ * Defaults to the Vite dev server when unset, which keeps local development
+ * working with no `.env` changes — the previous behaviour, scoped down.
+ */
+function allowedOrigins(): string[] {
+  const raw = process.env.FRONTEND_URL;
+  if (!raw) return ['http://localhost:5173'];
+  return raw
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  // Allow the Vite dev server (and the Compose frontend) to call the API.
   app.enableCors({
-    origin: true,
+    origin: allowedOrigins(),
     credentials: true,
   });
 
