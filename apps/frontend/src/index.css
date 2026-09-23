@@ -48,8 +48,10 @@
   --status-success: #07875f;
   --status-danger: #c9473c;
 
-  --shadow-card: 0 18px 55px rgba(19, 43, 62, 0.1);
-  --shadow-small: 0 8px 24px rgba(19, 43, 62, 0.07);
+  /* Shadows keep the v3-named aliases (--shadow-card / --grid-shadow-card)
+     below rather than being declared here; see the note there. */
+  --grid-shadow-card: 0 18px 55px rgba(19, 43, 62, 0.1);
+  --grid-shadow-small: 0 8px 24px rgba(19, 43, 62, 0.07);
 
   /* ---- shadcn semantic tokens, bound to the v3 palette ---- */
   --radius: 0.75rem;
@@ -100,9 +102,23 @@
   --font-sans: var(--font-body);
 
   /* Shadows — v3 --shadow-card / --shadow-small, exposed as the `shadow-card`
-     and `shadow-small` utilities. */
-  --shadow-card: var(--shadow-card);
-  --shadow-small: var(--shadow-small);
+     and `shadow-small` utilities.
+
+     WHY THE ALIASES EXIST: Tailwind inspects `@theme` to decide which
+     utilities to emit. Declaring `--shadow-card: var(--shadow-card)` inside
+     `@theme inline` never emits the literal `--shadow-card` into the
+     stylesheet, so the utility compiled to `--tw-shadow: var(--shadow-card)`
+     against a variable that was never defined — every `shadow-card` /
+     `shadow-small` in the app rendered with NO shadow, silently.
+
+     So the literal values live in `@theme` under v3-named aliases, and the
+     plain `--shadow-*` names are declared on `:root` just below. `@theme
+     inline` resolves aliases directly, so the utilities read `--grid-shadow-*`
+     and never depend on the `:root` definitions; those exist so the
+     documented `var(--shadow-card)` name still resolves if anything reaches
+     for it directly. */
+  --shadow-card: var(--grid-shadow-card);
+  --shadow-small: var(--grid-shadow-small);
 
   /* shadcn semantic utilities */
   --color-background: var(--background);
@@ -158,6 +174,15 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
   --radius-2xl: 24px;
+}
+
+/* The `var(--shadow-card)` names, restored. Declared AFTER `@theme inline` so
+   these win the cascade over the alias definitions above; the utilities
+   themselves are unaffected, because `inline` already substituted
+   `--grid-shadow-*` at compile time. See the note in `@theme`. */
+:root {
+  --shadow-card: var(--grid-shadow-card);
+  --shadow-small: var(--grid-shadow-small);
 }
 
 @layer base {
