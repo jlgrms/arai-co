@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { BrandLogo } from '@/components/brand/logo';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { HOME_BY_ROLE } from '@/app/nav';
 import { useAuth } from './auth-context';
 import { parseAuthError, type FieldErrors, type ParsedAuthError } from './auth-api-errors';
+import { SignInForm, useRedirectAfterAuth } from './sign-in-form';
 import type { Role } from './types';
 
 /**
@@ -82,45 +83,16 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 // Sign in
 // ---------------------------------------------------------------------------
 
-interface LocationState {
-  from?: string;
-}
-
 export function LoginScreen() {
-  const { login, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-  const [submitting, setSubmitting] = React.useState(false);
-  const [error, setError] = React.useState<ParsedAuthError | null>(null);
-
-  const redirectTo = React.useMemo(() => {
-    const state = location.state as LocationState | null;
-    return state?.from ?? null;
-  }, [location.state]);
+  const redirectTo = useRedirectAfterAuth();
 
   // If already signed in, this screen has nothing to do — send the user home.
   React.useEffect(() => {
     if (user) navigate(redirectTo ?? HOME_BY_ROLE[user.role], { replace: true });
   }, [user, navigate, redirectTo]);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const next = await login({ email: email.trim(), password });
-      navigate(redirectTo ?? HOME_BY_ROLE[next.role], { replace: true });
-    } catch (err) {
-      setError(parseAuthError(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const fieldErrs: FieldErrors = error?.fields ?? {};
 
   return (
     <AuthFrame
@@ -135,45 +107,10 @@ export function LoginScreen() {
         </>
       }
     >
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <FormAlert error={error} />
-
-        <div className="space-y-1.5">
-          <Label htmlFor="login-email">Email</Label>
-          <Input
-            id="login-email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-invalid={Boolean(fieldErrs.email)}
-            aria-describedby={fieldErrs.email ? 'login-email-error' : undefined}
-            required
-          />
-          <FieldError id="login-email-error" message={fieldErrs.email} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="login-password">Password</Label>
-          <Input
-            id="login-password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            aria-invalid={Boolean(fieldErrs.password)}
-            aria-describedby={fieldErrs.password ? 'login-password-error' : undefined}
-            required
-          />
-          <FieldError id="login-password-error" message={fieldErrs.password} />
-        </div>
-
-        <Button type="submit" className="w-full" size="lg" disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </Button>
-      </form>
+      {/* The form itself (state, login call, error mapping, redirect) lives in
+          sign-in-form.tsx and is shared with the landing page's hero panel, so
+          the two sign-in surfaces cannot drift apart. */}
+      <SignInForm idPrefix="login" />
     </AuthFrame>
   );
 }

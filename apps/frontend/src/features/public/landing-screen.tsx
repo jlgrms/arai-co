@@ -1,20 +1,10 @@
-import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { BrandLogo } from '@/components/brand/logo';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import {
-  BODY_PARTS,
-  isReady,
-  resolveConcern,
-  type BodyPart,
-} from './body-parts';
-import {
-  buildConcernHandoffState,
-  setPendingConcern,
-  GUIDED_MATCHING_PATH,
-} from './concern-handoff';
+import { SignInForm } from '@/features/auth/sign-in-form';
+import { useAuth } from '@/features/auth/auth-context';
+import { HOME_BY_ROLE } from '@/app/nav';
+import * as React from 'react';
 
 /**
  * Layer 9 — Product Website: the public landing page.
@@ -50,24 +40,25 @@ import {
  *     controls are exempt under WCAG, and we keep a disabled state, but we use
  *     muted-foreground on a muted surface for better legibility.
  *
- * WHAT THIS PAGE DOES NOT DO
- * --------------------------
- * It does not match. The match endpoints require authentication and Layer 4's
- * guards are not being changed, so the widget captures the concern, carries it
- * across the auth boundary, and hands off to the real Layer 6 flow. The step
- * indicator shows exactly that: step 1 is the only thing this page completes.
+ * THE HERO PANEL IS NOW SIGN-IN, NOT QUICK-BOOK
+ * ---------------------------------------------
+ * The hero's quick-book widget (body-part chips + free-text concern, handing
+ * off across the auth boundary via sessionStorage) has been RETIRED. The panel
+ * now holds a sign-in form in the same visual slot: same card dimensions,
+ * rounded corners, shadow and off-axis coral backing card, so the hero layout
+ * is unchanged and only the contents of the panel differ.
  *
- * The design's own script faked a match with a 1600ms setTimeout. That is
- * replaced by a real handoff; see concern-handoff.ts.
+ * The form is NOT reimplemented here. It is the same `SignInForm` the dedicated
+ * /login route renders, which owns the login() call, the parseAuthError mapping
+ * (401 invalid credentials / 403 suspended account) and the post-login redirect
+ * to HOME_BY_ROLE[role]. Two sign-in surfaces, one implementation.
+ *
+ * What this page no longer does: capture a concern, or know anything about
+ * matching. There is no anchor into a matching flow, because there is no
+ * matching entry point here any more.
  */
 
-const LOGIN_PATH = '/login';
-
-/**
- * Decorative background wash for the hero panel — the design's mint gradient.
- * Rendered as a CSS gradient from existing tokens rather than a new colour, and
- * marked aria-hidden: it carries no meaning.
- */
+/** Decorative background wash for the hero panel — the design's mint gradient. */
 function HeroDecor() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -89,187 +80,63 @@ function HeroDecor() {
   );
 }
 
-/** One body-part chip. Single-select, `aria-pressed` like the design. */
-function BodyPartButton({
-  part,
-  selected,
-  onSelect,
-}: {
-  part: BodyPart;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={cn(
-        'flex min-h-[72px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border px-1 py-2 text-[11px] font-semibold transition',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-        selected
-          ? 'border-accent bg-danger-tint text-ink shadow-[inset_0_0_0_1px_var(--color-accent)]'
-          : 'border-border bg-surface text-ink hover:-translate-y-0.5 hover:border-accent hover:shadow-sm',
-      )}
-    >
-      <svg
-        viewBox="0 0 24 24"
-        aria-hidden="true"
-        className={cn('size-[23px]', selected ? 'text-accent' : 'text-current')}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d={part.icon} />
-      </svg>
-      {part.label}
-    </button>
-  );
-}
-
 /**
- * The three-step indicator.
+ * The hero's sign-in panel.
  *
- * Honest by construction: `completed` is how many steps this page actually
- * finishes, and steps beyond that are rendered as not-yet-done. The landing page
- * only ever completes step 1, so 2 and 3 stay unfilled — they are not this
- * page's to claim. This is the visible contract of decision (a).
- */
-function StepIndicator({ completed }: { completed: number }) {
-  const steps = ['1 · Concern', '2 · Doctor', '3 · Schedule'];
-  return (
-    <ol className="mb-6 grid grid-cols-3 gap-2" aria-label="Booking progress">
-      {steps.map((label, index) => {
-        const done = index < completed;
-        return (
-          <li
-            key={label}
-            className={cn(
-              'relative pt-3 text-[10px] font-bold uppercase tracking-[0.08em]',
-              done ? 'text-ink' : 'text-muted-foreground',
-            )}
-            aria-current={index === completed - 1 ? 'step' : undefined}
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                'absolute left-0 top-0 h-[3px] w-full rounded-full',
-                done ? 'bg-accent' : 'bg-border',
-              )}
-            />
-            {label}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-/**
- * The quick-book widget.
+ * Replaces the retired quick-book widget in the SAME slot, keeping the exact
+ * card treatment (the `rounded-[30px]` surface, `shadow-xl`, and the rotated
+ * coral backing card behind it) so the hero's layout and proportions are
+ * unchanged. Only the panel's contents are new.
  *
- * Real behaviour, no simulated match: selecting a part or typing enables the
- * CTA; submitting stores the concern and routes to auth. The helper text says
- * what will actually happen rather than claiming a match has occurred.
+ * An already-signed-in visitor is sent to their role home rather than being
+ * shown a form they have no use for — the same courtesy /login extends.
  */
-function QuickBookWidget() {
+function HeroSignInPanel() {
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [selected, setSelected] = React.useState<BodyPart | null>(null);
-  const [typed, setTyped] = React.useState('');
 
-  const ready = isReady(selected, typed);
-  const concern = resolveConcern(selected, typed);
-
-  // Steps completed by THIS page. Step 1 is done once there is a concern; steps
-  // 2 and 3 belong to the authenticated Layer 6 flow and are never claimed here.
-  const completed = ready ? 1 : 0;
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!ready) return;
-    // Persist across the auth boundary, then hand off. Nothing is matched here.
-    setPendingConcern(concern);
-    navigate(LOGIN_PATH, { state: buildConcernHandoffState() });
-  }
-
-  const helper = ready
-    ? 'Handa na — mag-sign in para hanapin ang tamang doktor.'
-    : 'Pumili o mag-type para makapagsimula.';
+  React.useEffect(() => {
+    if (user) navigate(HOME_BY_ROLE[user.role], { replace: true });
+  }, [user, navigate]);
 
   return (
     <div className="relative lg:-ml-14">
-      {/* Coral card peeking out behind the widget (design .book-wrap:before). */}
+      {/* Coral card peeking out behind the widget (design .book-wrap:before).
+          Kept as-is: it is part of the panel's established visual slot. */}
       <div
         aria-hidden="true"
         className="absolute inset-x-[-14px] inset-y-[15px] -z-10 rotate-[1.8deg] rounded-[32px] bg-accent/15"
       />
-      <form
-        onSubmit={handleSubmit}
-        className="rounded-[30px] border border-border bg-surface/95 p-5 shadow-xl backdrop-blur sm:p-7"
-      >
-        <StepIndicator completed={completed} />
-
+      <div className="rounded-[30px] border border-border bg-surface/95 p-5 shadow-xl backdrop-blur sm:p-7">
         <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.13em] text-danger-text">
-          Quick Book
+          Sign in
         </p>
         <h2 className="mb-5 font-heading text-2xl font-extrabold tracking-tight text-ink sm:text-[37px] sm:leading-[1.12]">
-          Saan ka umaaray?
+          Maligayang pagbabalik.
         </h2>
 
-        <div
-          role="group"
-          aria-label="Pumili ng bahagi ng katawan"
-          className="mb-3.5 grid grid-cols-4 gap-2"
-        >
-          {BODY_PARTS.map((part) => (
-            <BodyPartButton
-              key={part.id}
-              part={part}
-              selected={selected?.id === part.id}
-              onSelect={() => setSelected((prev) => (prev?.id === part.id ? null : part))}
-            />
-          ))}
-        </div>
-
-        <label htmlFor="concern" className="sr-only">
-          Ilarawan ang nararamdaman
-        </label>
-        <textarea
-          id="concern"
-          name="concern"
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          placeholder="Masakit tiyan ko kagabi pa"
-          className="block h-[75px] w-full resize-none rounded-xl border border-border bg-background/60 px-3.5 py-3 text-sm leading-snug text-ink transition placeholder:text-muted-foreground focus-visible:border-ink focus-visible:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        <SignInForm
+          idPrefix="hero-login"
+          footer={
+            <p className="text-center text-[13px] text-muted-foreground">
+              Wala pang account?{' '}
+              <Link
+                to="/register/patient"
+                className="font-medium text-ink underline underline-offset-4"
+              >
+                Register as Patient
+              </Link>{' '}
+              ·{' '}
+              <Link
+                to="/register/doctor"
+                className="font-medium text-ink underline underline-offset-4"
+              >
+                Register as Doctor
+              </Link>
+            </p>
+          }
         />
-
-        <Button
-          type="submit"
-          variant="cta"
-          disabled={!ready}
-          className="mt-3 min-h-[54px] w-full"
-        >
-          Mag-hanap ng Doctor
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            className="size-[18px]"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-        </Button>
-
-        <p aria-live="polite" className="mt-2 text-center text-[11px] text-muted-foreground">
-          {helper}
-        </p>
-      </form>
+      </div>
     </div>
   );
 }
@@ -357,18 +224,26 @@ export function LandingScreen() {
           </div>
         </section>
 
-        <QuickBookWidget />
+        <HeroSignInPanel />
       </main>
 
       {/*
         The design has no footer. One is added anyway: the trust disclaimer is a
         Layer 9 scope requirement, and it must be reachable without scrolling the
-        hero. It names the Layer 6 flow the widget hands off to.
+        hero.
+
+        The former "Find a doctor" link pointed at GUIDED_MATCHING_PATH
+        (/patient/book) — the destination the quick-book widget handed off to.
+        With the widget retired there is no longer anything on this page that
+        leads there, and the route is patient-only, so an anonymous visitor
+        clicking it was bounced straight back to /login. It now points at the
+        landing page's own register chooser instead, which is a visitor's actual
+        next step from here.
       */}
       <footer className="border-t border-border px-6 py-5 text-center text-xs text-muted-foreground sm:px-10">
         ARAI.co — prototype for demonstration only. Not for real medical use.{' '}
-        <Link to={GUIDED_MATCHING_PATH} className="underline underline-offset-4 hover:text-ink">
-          Find a doctor
+        <Link to="/register" className="underline underline-offset-4 hover:text-ink">
+          Create an account
         </Link>
       </footer>
     </div>
