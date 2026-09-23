@@ -34,6 +34,11 @@ const BCRYPT_ROUNDS = 10;
 //     are templated per specialty. Specialties cycle across the five above.
 //     Emails are zero-padded to three digits (dr.test001, not dr.test1).
 //
+//   EXPANDED SPECIALTY DOCTORS (same password — 20 more, dr.test051…dr.test070)
+//     One per newly-offered specialty, so all 25 specializations in
+//     SPECIALIZATIONS have at least one APPROVED doctor behind them. Same
+//     generator and naming scheme as the batch above.
+//
 //   UNREVIEWED DOCTORS (same password — the admin Doctor Review queue fixtures)
 //     dr.pending@example.com   Dr. Nadia Haddad   Neurology     PENDING
 //     dr.rejected@example.com  Dr. Victor Osei    Orthopedics   REJECTED
@@ -207,6 +212,85 @@ async function main(): Promise<void> {
         userId: user.id,
         name: `Dr. ${first} ${last}`,
         biography: bulkSpecialtyBios[specialization]!,
+        specialization,
+        approvalStatus: ApprovalStatus.APPROVED,
+      },
+    });
+    // PUSH ONLY — see the positional warning above.
+    doctorProfiles.push(profile);
+  }
+
+  // -------------------------------------------------------------------------
+  // EXPANDED SPECIALTY LIST — one doctor per newly-offered specialty.
+  //
+  // The product's specialty list grew from 5 to 25 (see SPECIALIZATIONS in
+  // apps/frontend/src/features/doctor/doctor-types.ts). A specialty with no
+  // doctor behind it is a dead end twice over: the guided-matching result is
+  // empty, and discovery's specialization filter returns nothing. So every
+  // newly-listed specialty gets at least one APPROVED doctor here.
+  //
+  // The AI matcher needs no separate list: `DoctorsService.availableSpecialties()`
+  // derives the model's options from the distinct specializations of APPROVED
+  // doctors. Seeding these doctors IS how the AI list is updated.
+  //
+  // SAME APPEND-ONLY RULE as the block above: push, never insert. The positional
+  // reads (`doctorProfiles[1|2|5]`) are further down and must keep resolving to
+  // the original Dr. Okafor / Dr. Patel / Dr. Silva.
+  // -------------------------------------------------------------------------
+  const expandedSpecialtyBios: Record<string, string> = {
+    'Internal Medicine':
+      'Internist managing complex adult conditions, multimorbidity, and coordinated care.',
+    Neurology: 'Neurologist assessing headache, seizure, and movement disorders.',
+    Orthopedics: 'Orthopedic specialist for joint, bone, and musculoskeletal complaints.',
+    Gastroenterology: 'Gastroenterologist treating digestive and liver conditions.',
+    Endocrinology: 'Endocrinologist managing diabetes, thyroid, and hormonal disorders.',
+    Pulmonology: 'Pulmonologist treating asthma, COPD, and other respiratory conditions.',
+    'Otolaryngology (ENT)':
+      'ENT specialist for ear, nose, throat, and sinus complaints.',
+    Ophthalmology: 'Ophthalmologist for vision problems and eye disease.',
+    Urology: 'Urologist treating urinary tract and male reproductive conditions.',
+    Nephrology: 'Nephrologist managing kidney disease and related conditions.',
+    Rheumatology: 'Rheumatologist for arthritis, autoimmune, and joint disease.',
+    'Obstetrics & Gynecology':
+      'OB-GYN providing women\u2019s health, prenatal, and reproductive care.',
+    'Allergy & Immunology':
+      'Allergist assessing allergies, sensitivities, and immune disorders.',
+    'Infectious Disease':
+      'Infectious disease specialist for complex and persistent infections.',
+    Hematology: 'Hematologist managing blood disorders and related conditions.',
+    Geriatrics: 'Geriatrician focused on the health of older adults.',
+    Podiatry: 'Podiatrist treating foot, ankle, and lower limb conditions.',
+    'Sleep Medicine':
+      'Sleep specialist assessing insomnia, sleep apnea, and related disorders.',
+    'Physical Therapy & Rehabilitation':
+      'Physiotherapist supporting recovery, mobility, and rehabilitation.',
+    Urogynecology:
+      'Urogynecologist treating pelvic floor disorders and related conditions.',
+  };
+
+  const expandedSpecialties = Object.keys(expandedSpecialtyBios);
+  for (let i = 0; i < expandedSpecialties.length; i++) {
+    // Continue the pool offsets from the 50-doctor batch so expanded names do
+    // not collide with it, and stay deterministic across re-seeds.
+    const offset = i + BULK_DOCTOR_COUNT;
+    const specialization = expandedSpecialties[i]!;
+    const first = filipinoFirstNames[(offset * 7) % filipinoFirstNames.length]!;
+    const last = filipinoLastNames[(offset * 3) % filipinoLastNames.length]!;
+    const num = String(offset + 1).padStart(3, '0');
+
+    const user = await prisma.user.create({
+      data: {
+        email: `dr.test${num}@example.com`,
+        passwordHash: doctorPasswordHash,
+        role: Role.DOCTOR,
+        accountState: AccountState.ACTIVE,
+      },
+    });
+    const profile = await prisma.doctorProfile.create({
+      data: {
+        userId: user.id,
+        name: `Dr. ${first} ${last}`,
+        biography: expandedSpecialtyBios[specialization]!,
         specialization,
         approvalStatus: ApprovalStatus.APPROVED,
       },
@@ -415,6 +499,40 @@ async function main(): Promise<void> {
     { symptomOrConcern: 'anxiety', specialty: 'Psychiatry' },
     { symptomOrConcern: 'depression', specialty: 'Psychiatry' },
     { symptomOrConcern: 'insomnia', specialty: 'Psychiatry' },
+    // --- expanded specialty list (25 total) ---
+    { symptomOrConcern: 'diabetes', specialty: 'Internal Medicine' },
+    { symptomOrConcern: 'numbness', specialty: 'Neurology' },
+    { symptomOrConcern: 'seizure', specialty: 'Neurology' },
+    { symptomOrConcern: 'back pain', specialty: 'Orthopedics' },
+    { symptomOrConcern: 'joint pain', specialty: 'Orthopedics' },
+    { symptomOrConcern: 'heartburn', specialty: 'Gastroenterology' },
+    { symptomOrConcern: 'abdominal pain', specialty: 'Gastroenterology' },
+    { symptomOrConcern: 'thyroid problem', specialty: 'Endocrinology' },
+    { symptomOrConcern: 'shortness of breath', specialty: 'Pulmonology' },
+    { symptomOrConcern: 'asthma', specialty: 'Pulmonology' },
+    { symptomOrConcern: 'ear pain', specialty: 'Otolaryngology (ENT)' },
+    { symptomOrConcern: 'sinus infection', specialty: 'Otolaryngology (ENT)' },
+    { symptomOrConcern: 'blurred vision', specialty: 'Ophthalmology' },
+    { symptomOrConcern: 'eye redness', specialty: 'Ophthalmology' },
+    { symptomOrConcern: 'painful urination', specialty: 'Urology' },
+    { symptomOrConcern: 'kidney stones', specialty: 'Urology' },
+    { symptomOrConcern: 'swollen ankles', specialty: 'Nephrology' },
+    { symptomOrConcern: 'arthritis', specialty: 'Rheumatology' },
+    { symptomOrConcern: 'prenatal checkup', specialty: 'Obstetrics & Gynecology' },
+    { symptomOrConcern: 'irregular period', specialty: 'Obstetrics & Gynecology' },
+    { symptomOrConcern: 'allergy', specialty: 'Allergy & Immunology' },
+    { symptomOrConcern: 'hives', specialty: 'Allergy & Immunology' },
+    { symptomOrConcern: 'persistent infection', specialty: 'Infectious Disease' },
+    { symptomOrConcern: 'anemia', specialty: 'Hematology' },
+    { symptomOrConcern: 'bruising easily', specialty: 'Hematology' },
+    { symptomOrConcern: 'memory loss', specialty: 'Geriatrics' },
+    { symptomOrConcern: 'foot pain', specialty: 'Podiatry' },
+    { symptomOrConcern: 'ingrown toenail', specialty: 'Podiatry' },
+    { symptomOrConcern: 'sleep apnea', specialty: 'Sleep Medicine' },
+    { symptomOrConcern: 'snoring', specialty: 'Sleep Medicine' },
+    { symptomOrConcern: 'knee rehabilitation', specialty: 'Physical Therapy & Rehabilitation' },
+    { symptomOrConcern: 'pelvic pain', specialty: 'Urogynecology' },
+    { symptomOrConcern: 'bladder leakage', specialty: 'Urogynecology' },
   ];
   await prisma.symptomSpecialtyMap.createMany({ data: symptomMap });
 

@@ -112,10 +112,30 @@ export interface UpdateAvailabilityInput {
  */
 export const SPECIALIZATIONS = [
   'General Medicine',
+  'Internal Medicine',
+  'Pediatrics',
   'Cardiology',
   'Dermatology',
+  'Neurology',
+  'Orthopedics',
+  'Gastroenterology',
   'Psychiatry',
-  'Pediatrics',
+  'Endocrinology',
+  'Pulmonology',
+  'Otolaryngology (ENT)',
+  'Ophthalmology',
+  'Urology',
+  'Nephrology',
+  'Rheumatology',
+  'Obstetrics & Gynecology',
+  'Allergy & Immunology',
+  'Infectious Disease',
+  'Hematology',
+  'Geriatrics',
+  'Podiatry',
+  'Sleep Medicine',
+  'Physical Therapy & Rehabilitation',
+  'Urogynecology',
 ] as const;
 
 export type Specialization = (typeof SPECIALIZATIONS)[number];
