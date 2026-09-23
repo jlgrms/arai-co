@@ -1,4 +1,6 @@
-# Telehealth App
+<img src="./docs/arai-logo-mark-light.png" alt="ARAI.CO logo" width="320" />
+
+# ARAI.CO
 
 A full-stack telehealth platform where patients discover doctors, book appointments, and consult remotely, doctors manage their availability and patient records, and administrators oversee users, doctors, appointments, and audit activity.
 
