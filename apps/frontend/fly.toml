@@ -1,47 +1,34 @@
-# Fly.io config for the frontend (Vite + React, served by nginx).
+# fly.toml app configuration file generated for telehealth-frontend-cold-marsh-6485 on 2026-09-23T10:01:35+08:00
 #
-# Pre-staged so `fly launch` has little to guess.
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
-# IMPORTANT — the VITE_API_BASE_URL build arg below must be the BACKEND's public
-# URL before you deploy. Vite inlines import.meta.env.* at build time, so this is
-# baked into the bundle; changing it later requires a rebuild, not a restart.
-# Set it to https://<backend-app>.fly.dev once the backend app exists.
-#
-# Launch from the repo root (the Dockerfile needs the workspace files):
-#   fly launch --dockerfile apps/frontend/Dockerfile --config apps/frontend/fly.toml
 
-app = "telehealth-frontend"
-primary_region = "sin"
+app = 'telehealth-frontend-cold-marsh-6485'
+primary_region = 'sin'
 
 [build]
-  # Path is relative to the build context, which is the repo root (see the note
-  # above). It must include the apps/frontend/ prefix: a bare "Dockerfile" would
-  # resolve to <repo-root>/Dockerfile, which does not exist.
-  dockerfile = "apps/frontend/Dockerfile"
+  dockerfile = 'Dockerfile'
 
   [build.args]
-    # REPLACE with the real backend URL after the backend app is created.
-    # Keep it in sync with the backend's FRONTEND_URL secret, which is the
-    # other half of the CORS handshake.
-    VITE_API_BASE_URL = "https://telehealth-backend.fly.dev"
+    VITE_API_BASE_URL = 'https://telehealth-backend-dry-mountain-2145.fly.dev'
 
 [env]
-  NODE_ENV = "production"
+  NODE_ENV = 'production'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
-    method = "GET"
-    path = "/"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
