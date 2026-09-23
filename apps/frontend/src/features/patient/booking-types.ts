@@ -185,3 +185,45 @@ export function partitionAppointments(
   past.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
   return { upcoming, past };
 }
+
+// ---------------------------------------------------------------------------
+// Booking journey progress
+// ---------------------------------------------------------------------------
+
+/**
+ * The three steps of booking, in order. Labels are short because they sit under
+ * the circles in the progress track.
+ *
+ * This is the BOOKING journey specifically (find the right specialty → pick the
+ * doctor → pick the time). It is not the same axis as the appointment or
+ * consultation statuses, which describe a booking that already exists.
+ */
+export const BOOKING_STEPS = [
+  { label: 'Concern' },
+  { label: 'Doctor' },
+  { label: 'Schedule' },
+] as const;
+
+export type BookingStep = 0 | 1 | 2;
+
+/**
+ * Where the guided-matching screen sits. It is step 0: the patient is still
+ * describing the concern, so nothing is complete yet and the track shows
+ * "Concern" as current.
+ */
+export const MATCHING_STEP: BookingStep = 0;
+
+/**
+ * Where the slot picker sits: the doctor is already chosen (reached via the
+ * doctor's card), so steps 0 and 1 are behind the patient and "Schedule" is
+ * current — the track shows two filled circles and a check on each.
+ */
+export const SCHEDULE_STEP: BookingStep = 2;
+
+/**
+ * Where the confirmation screen sits: every step the patient controls is done.
+ * Expressed as `BOOKING_STEPS.length` rather than 3 so the track marks the last
+ * step complete instead of leaving it permanently "current" — the flow is
+ * finished, and a progress bar that never reaches the end reads as broken.
+ */
+export const CONFIRMED_STEP: number = BOOKING_STEPS.length;

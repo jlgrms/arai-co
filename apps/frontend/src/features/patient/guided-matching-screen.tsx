@@ -7,11 +7,13 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { JourneyProgress } from '@/components/ui/journey-progress';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api-client';
 import { consumePendingConcern } from '@/features/public/concern-handoff';
 import { parseMatchError, type ParsedMatchError } from './match-api-errors';
+import { BOOKING_STEPS, MATCHING_STEP } from './booking-types';
 import {
   buildMatchPath,
   groupDoctorsBySpecialty,
@@ -236,6 +238,10 @@ export function GuidedMatchingScreen() {
         title="Find the right doctor"
         description="Tell us how you're feeling and we'll match you with the right specialty."
       />
+
+      {/* Step 1 of 3: the concern. The doctor and the time come next, and the
+          same track carries through both of those screens. */}
+      <JourneyProgress steps={[...BOOKING_STEPS]} current={MATCHING_STEP} />
 
       <Card>
         <CardContent className="space-y-5 p-6">
