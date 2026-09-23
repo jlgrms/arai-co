@@ -16,6 +16,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { JitsiCall } from '@/components/ui/jitsi-call';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConsultationStateBadge } from '@/components/ui/status-badge';
@@ -244,7 +245,7 @@ export function ConsultationWorkspaceScreen() {
     );
   }
 
-  const { doctorPresent } = presenceOf(session);
+  const { patientPresent, doctorPresent } = presenceOf(session);
   const waiting = isWaitingForDoctor(session);
   const finished = session.state === 'COMPLETED';
   // Not just `canJoin(state)`: cancelling an appointment leaves its session
@@ -345,6 +346,18 @@ export function ConsultationWorkspaceScreen() {
           )}
         </CardContent>
       </Card>
+
+      {/* ---- Video call ----------------------------------------------------
+          Additive to the join flow, not a replacement: the patient still clicks
+          Join (which transitions the session) and only then does the room
+          appear. Rendering it before joining would put the patient in the call
+          while the workspace still says they have not arrived — the two would
+          visibly disagree.
+
+          Kept mounted through IN_PROGRESS and COMPLETED so completing the
+          consultation does not yank the doctor's own call out from under them
+          (completion is doctor-side; this frame is the patient's). */}
+      {patientPresent && !finished && <JitsiCall sessionId={session.id} />}
 
       {/* ---- Records (only once the session is COMPLETED) ------------------ */}
       {finished && (

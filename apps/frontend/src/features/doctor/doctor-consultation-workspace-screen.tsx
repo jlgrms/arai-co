@@ -7,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { JitsiCall } from '@/components/ui/jitsi-call';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -305,6 +306,15 @@ export function DoctorConsultationWorkspaceScreen() {
           )}
         </CardContent>
       </Card>
+
+      {/* ---- Video call ----------------------------------------------------
+          Same room as the patient's (the name is derived from the session id on
+          both sides via one shared function), so the two land in the same call.
+
+          Additive to the join flow: the doctor still clicks Join first, and the
+          frame appears once they are actually in the room. Hidden from the
+          first join onward once COMPLETED, when the call is over. */}
+      {doctorPresent && session.state !== 'COMPLETED' && <JitsiCall sessionId={session.id} />}
 
       {/* ---- Notes & prescriptions ----------------------------------------- */}
       <div className="space-y-4">
