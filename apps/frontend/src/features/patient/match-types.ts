@@ -21,6 +21,12 @@ export interface MatchResult {
   matchedSpecialties: string[];
   /** APPROVED doctors belonging to any of `matchedSpecialties`. */
   doctors: DoctorPublic[];
+  /**
+   * Which matcher produced this result. Absent on the deterministic
+   * GET /doctors/match response (it predates the field and is left untouched);
+   * 'ai' on POST /doctors/match-ai so the screen can label the answer honestly.
+   */
+  engine?: 'ai';
 }
 
 /** One row of GET /doctors/match/options. */
@@ -84,3 +90,6 @@ export function buildMatchPath(symptom: string): string {
   params.set('symptom', symptom.trim());
   return `/doctors/match?${params.toString()}`;
 }
+
+/** POST /doctors/match-ai — POC AI-assisted matching. Body is `{ symptom }`. */
+export const MATCH_AI_PATH = '/doctors/match-ai';

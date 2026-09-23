@@ -165,6 +165,136 @@ export class DoctorsService {
     return { symptom, matchedSpecialties, doctors };
   }
 
+  // ---- POC: AI-assisted matching (DeepSeek) -------------------------------------
+
+  /**
+   * The specialties we actually have APPROVED doctors in.
+   *
+   * Derived from the DoctorProfile table rather than hardcoded, so the prompt can
+   * only ever offer the model a specialty that resolves to a real doctor. A
+   * hardcoded list would silently drift the moment a specialization is added or
+   * removed, and the model would confidently name a specialty with nobody behind it.
+   */
+  private async availableSpecialties(): Promise<string[]> {
+    const rows = await this.prisma.doctorProfile.findMany({
+      where: { approvalStatus: ApprovalStatus.APPROVED },
+      select: { specialization: true },
+      distinct: ['specialization'],
+      orderBy: { specialization: 'asc' },
+    });
+    return rows.map((r) => r.specialization);
+  }
+
+  /**
+   * POC AI matching: free-text symptom -> DeepSeek -> one specialty -> doctors.
+   *
+   * Deliberately minimal, per the POC brief:
+   *   - no retries, no rate limiting, no prompt tuning;
+   *   - a single 15s AbortController timeout so a hung request cannot pin a
+   *     request handler forever;
+   *   - the model's answer is validated against the known list and, if it does not
+   *     match, we fall back to the first specialty rather than building elaborate
+   *     repair logic.
+   *
+   * The response shape is intentionally IDENTICAL to `match()` (plus an `engine`
+   * marker) so the existing guided-matching screen can render it with no new
+   * result UI.
+   */
+  async matchAi(symptom: string) {
+    const text = (symptom ?? '').trim();
+    const specialties = await this.availableSpecialties();
+
+    if (!text || specialties.length === 0) {
+      return { symptom: text, matchedSpecialties: [], doctors: [], engine: 'ai' as const };
+    }
+
+    const chosen = await this.askDeepSeekForSpecialty(text, specialties);
+    const matchedSpecialties = [chosen ?? specialties[0]];
+
+    const doctors = await this.prisma.doctorProfile.findMany({
+      where: {
+        approvalStatus: ApprovalStatus.APPROVED,
+        specialization: { in: matchedSpecialties, mode: 'insensitive' },
+      },
+      select: DOCTOR_PUBLIC_SELECT,
+      orderBy: { name: 'asc' },
+    });
+
+    return { symptom: text, matchedSpecialties, doctors, engine: 'ai' as const };
+  }
+
+  /**
+   * Ask DeepSeek to name ONE specialty from the supplied list.
+   *
+   * Returns null when the call fails or the key is unset — the caller then falls
+   * back to the first specialty. This is a POC, so a failed API call degrades
+   * rather than throwing a 500 at the patient.
+   */
+  private async askDeepSeekForSpecialty(
+    symptom: string,
+    specialties: string[],
+  ): Promise<string | null> {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) {
+      // Warned so the failure is diagnosable rather than a silent wrong answer.
+      console.warn('  ! DEEPSEEK_API_KEY is not set — AI matching falls back to the first specialty');
+      return null;
+    }
+
+    const prompt =
+      `You are a medical triage assistant. A patient describes their problem as:\n` +
+      `"${symptom}"\n\n` +
+      `Choose the single most appropriate specialty from this list:\n` +
+      specialties.join(', ') +
+      `\n\nReply with ONLY the specialty name, exactly as written above. No punctuation, no explanation.`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+
+    try {
+      const res = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 20,
+          temperature: 0,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        console.warn(`  ! DeepSeek returned HTTP ${res.status} — falling back`);
+        return null;
+      }
+
+      const body = (await res.json()) as {
+        choices?: { message?: { content?: string } }[];
+      };
+      const raw = body.choices?.[0]?.message?.content?.trim() ?? '';
+      // Strip stray quotes/backticks/periods the model may add despite instructions.
+      const cleaned = raw.replace(/^["'`]+|["'`.]+$/g, '').trim();
+      const hit = specialties.find((s) => s.toLowerCase() === cleaned.toLowerCase());
+      if (!hit) {
+        console.warn(
+          `  ! DeepSeek replied ${JSON.stringify(raw)} — not a known specialty, falling back`,
+        );
+        return null;
+      }
+      return hit;
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`  ! DeepSeek call failed (${reason}) — falling back`);
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   // ---- Sub-item 4: availability management (doctor's own slots) -----------------
 
   async listOwnAvailability(userId: string) {

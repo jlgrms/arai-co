@@ -16,6 +16,7 @@ import {
   buildMatchPath,
   groupDoctorsBySpecialty,
   isEmptyMatch,
+  MATCH_AI_PATH,
   type MatchOption,
   type MatchOptionsResponse,
   type MatchResult,
@@ -119,6 +120,7 @@ export function GuidedMatchingScreen() {
 
   const [options, setOptions] = React.useState<MatchOption[]>([]);
   const [optionsLoading, setOptionsLoading] = React.useState(true);
+  const [useAi, setUseAi] = React.useState(false);
 
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   // Guards against a slow earlier match overwriting a newer one's results.
@@ -144,13 +146,18 @@ export function GuidedMatchingScreen() {
     return () => controller.abort();
   }, []);
 
-  const runMatch = React.useCallback(async (raw: string) => {
+  const runMatch = React.useCallback(async (raw: string, ai = false) => {
     const trimmed = raw.trim();
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<MatchResult>(buildMatchPath(trimmed));
+      // POC: `ai` swaps the backend engine. Both return the same MatchResult
+      // shape, so everything downstream (skeleton, error card, grouping,
+      // empty state) is shared — there is no separate AI result UI.
+      const data = ai
+        ? await api.post<MatchResult>(MATCH_AI_PATH, { symptom: trimmed })
+        : await api.get<MatchResult>(buildMatchPath(trimmed));
       if (requestId !== requestIdRef.current) return;
       setResult(data);
     } catch (err: unknown) {
@@ -185,13 +192,26 @@ export function GuidedMatchingScreen() {
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!symptom.trim()) return;
-    void runMatch(symptom);
+    void runMatch(symptom, useAi);
   }
 
   /** One-tap path: fill the visible field, then match the chip's own phrase. */
   function handleChip(option: MatchOption) {
     setSymptom(option.symptom);
-    void runMatch(option.symptom);
+    void runMatch(option.symptom, useAi);
+  }
+
+  /**
+   * POC: run the same typed symptom through the AI engine.
+   *
+   * Only offered once there is text to send. This is additive — the
+   * deterministic "Match me with a doctor" path is unchanged and remains the
+   * default, so a DeepSeek outage can never take the screen down.
+   */
+  function handleAiMatch() {
+    if (!symptom.trim()) return;
+    setUseAi(true);
+    void runMatch(symptom, true);
   }
 
   /**
@@ -228,16 +248,31 @@ export function GuidedMatchingScreen() {
                 ref={inputRef}
                 rows={3}
                 value={symptom}
-                onChange={(e) => setSymptom(e.target.value)}
+                onChange={(e) => {
+                  setSymptom(e.target.value);
+                  // Any edit invalidates the AI/deterministic label on screen.
+                  setUseAi(false);
+                }}
                 placeholder="Describe your symptom or concern, e.g. “persistent cough”…"
                 className="flex w-full resize-y rounded-md border border-input bg-surface px-3 py-2 text-sm text-ink shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 autoComplete="off"
               />
             </div>
 
-            <Button type="submit" variant="cta" disabled={loading || !symptom.trim()}>
-              {loading ? 'Matching…' : 'Match me with a doctor'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" variant="cta" disabled={loading || !symptom.trim()}>
+                {loading && !useAi ? 'Matching…' : 'Match me with a doctor'}
+              </Button>
+              {/* POC AI matching — additive; the deterministic path above is untouched. */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAiMatch}
+                disabled={loading || !symptom.trim()}
+              >
+                {loading && useAi ? 'Asking AI…' : 'Try AI matching'}
+              </Button>
+            </div>
           </form>
 
           {!optionsLoading && options.length > 0 && (
@@ -311,10 +346,15 @@ export function GuidedMatchingScreen() {
 
       {!error && !loading && !noMatch && groups.length > 0 && (
         <section className="space-y-6" aria-live="polite">
-          <p className="text-sm text-muted-foreground">
-            {result!.doctors.length === 1
-              ? '1 doctor matches your concern.'
-              : `${result!.doctors.length} doctors match your concern.`}
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>
+              {result!.doctors.length === 1
+                ? '1 doctor matches your concern.'
+                : `${result!.doctors.length} doctors match your concern.`}
+            </span>
+            {/* Only present when the AI engine answered; the deterministic
+                endpoint omits `engine` and shows no badge. */}
+            {result!.engine === 'ai' && <Badge variant="secondary">AI match</Badge>}
           </p>
           {groups.map((group) => (
             <div key={group.specialization} className="space-y-3">

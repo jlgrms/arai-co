@@ -31,6 +31,10 @@ services:
       BACKEND_PORT: ${BACKEND_PORT:-3000}
       NODE_ENV: ${NODE_ENV:-development}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-a-real-deployment}
+      # POC AI matching (Layer 6 sub-item 3). Blank is a valid value — the
+      # endpoint then reports that AI matching is unconfigured rather than
+      # crashing, so the app still boots without a key.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
       - '${BACKEND_PORT:-3000}:3000'
     volumes:

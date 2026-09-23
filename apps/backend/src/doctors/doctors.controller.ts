@@ -102,6 +102,16 @@ export class DoctorsController {
     return this.doctorsService.match(symptom ?? '');
   }
 
+  // POC: same contract as GET /doctors/match, but the specialty is chosen by
+  // DeepSeek instead of the deterministic symptom map. Separate route (rather
+  // than ?useAI=true) so the deterministic path stays byte-for-byte untouched
+  // and either can be exercised independently.
+  @Post('match-ai')
+  @UseGuards(JwtAuthGuard)
+  matchAi(@Body('symptom') symptom: string) {
+    return this.doctorsService.matchAi(symptom ?? '');
+  }
+
   // ---- Discovery (any authenticated role) ----
 
   @Get()
