@@ -1,4 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 
 import { BrandLogo } from '@/components/brand/logo';
 import { SignInForm } from '@/features/auth/sign-in-form';
@@ -53,6 +54,16 @@ import * as React from 'react';
  * (401 invalid credentials / 403 suspended account) and the post-login redirect
  * to HOME_BY_ROLE[role]. Two sign-in surfaces, one implementation.
  *
+ * v3 DESIGN PASS ON THE PANEL: the card was brought onto the v3 scale and the
+ * form onto the v3 CTA treatment — 26px radius (the 24-28px featured-card
+ * tier; 30px was off-scale), `shadow-card` alongside the border per v3's
+ * "cards get a border AND a shadow", the submit switched to the coral `cta`
+ * variant (white on coral, large + bold — the one permitted white-on-coral
+ * case), and the register links promoted from an underline pair to two
+ * bordered rows under a hairline separator. The backing card moved from
+ * coral/15 to mint: coral as a large-section background is a hard v3
+ * prohibition, and the backing card is the full panel footprint.
+ *
  * What this page no longer does: capture a concern, or know anything about
  * matching. There is no anchor into a matching flow, because there is no
  * matching entry point here any more.
@@ -101,41 +112,81 @@ function HeroSignInPanel() {
 
   return (
     <div className="relative lg:-ml-14">
-      {/* Coral card peeking out behind the widget (design .book-wrap:before).
-          Kept as-is: it is part of the panel's established visual slot. */}
+      {/* Backing card peeking out behind the panel (design .book-wrap:before).
+          Kept: it is part of the panel's established visual slot and gives the
+          card its off-axis, layered feel (v3 permits layered cards on public
+          pages).
+
+          It is MINT, not coral. It was bg-accent/15, which violates v3's hard
+          rule that coral is for primary actions and brand accents and is never
+          a large-section background. A backing card this size (the full panel
+          footprint, rotated) is unambiguously "large section" — and at 15% over
+          the hero's mint wash it read as a tinted slab anyway, which is why the
+          swap costs nothing visually. Mint is a designated supporting colour,
+          and it now stacks correctly on the page's own mint wash. */}
       <div
         aria-hidden="true"
-        className="absolute inset-x-[-14px] inset-y-[15px] -z-10 rotate-[1.8deg] rounded-[32px] bg-accent/15"
+        className="absolute inset-x-[-14px] inset-y-[15px] -z-10 rotate-[1.8deg] rounded-[30px] bg-green-tint"
       />
-      <div className="rounded-[30px] border border-border bg-surface/95 p-5 shadow-xl backdrop-blur sm:p-7">
-        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.13em] text-danger-text">
-          Sign in
-        </p>
-        <h2 className="mb-5 font-heading text-2xl font-extrabold tracking-tight text-ink sm:text-[37px] sm:leading-[1.12]">
-          Maligayang pagbabalik.
-        </h2>
-
-        <SignInForm
-          idPrefix="hero-login"
-          footer={
-            <p className="text-center text-[13px] text-muted-foreground">
-              Wala pang account?{' '}
-              <Link
-                to="/register/patient"
-                className="font-medium text-ink underline underline-offset-4"
-              >
-                Register as Patient
-              </Link>{' '}
-              ·{' '}
-              <Link
-                to="/register/doctor"
-                className="font-medium text-ink underline underline-offset-4"
-              >
-                Register as Doctor
-              </Link>
-            </p>
-          }
+      {/* 26px sits squarely in v3's 24-28px featured-card tier. The old 30px
+          was off-scale (the nearest token value is 24px), and 26px keeps the
+          panel within a few pixels of its previous footprint, so the hero grid
+          does not reflow. */}
+      <div className="relative overflow-hidden rounded-[26px] border border-border bg-surface/95 p-5 shadow-card backdrop-blur sm:p-7">
+        {/* Restrained decorative corner: a small solid dot echoing the hero's
+            dot grid, breaking the card's top-right edge. Decorative only —
+            aria-hidden, behind the content, and nowhere near the fields. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-9 -top-9 size-24 rounded-full bg-green-tint"
         />
+
+        <div className="relative">
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.13em] text-danger-text">
+            Sign in
+          </p>
+          {/*
+            Taglish, warm, and continuous with the hero's own voice ("Mag-ARAI
+            ka na."): same "balik" root as the heading it replaces, but as a
+            question that invites the returning user in. It stays sentence-cased
+            and short so it does not grow the card.
+          */}
+          <h2 className="mb-5 font-heading text-2xl font-extrabold tracking-tight text-ink sm:text-[34px] sm:leading-[1.12]">
+            Balik ka na?
+          </h2>
+
+          <SignInForm
+            idPrefix="hero-login"
+            footer={
+              <div className="space-y-3 pt-1">
+                {/* Separation: the register paths are a genuine alternative to
+                    signing in, not a footnote. A hairline rule sets them apart
+                    from the form, and each link gets a repeated trailing icon
+                    so its direction is legible without relying on colour. */}
+                <div className="border-t border-border" />
+                <p className="text-center text-[13px] text-muted-foreground">
+                  Wala pang account?
+                </p>
+                <div className="grid gap-2">
+                  <Link
+                    to="/register/patient"
+                    className="flex items-center justify-between rounded-md border border-border bg-surface px-3.5 py-2.5 text-[13px] font-semibold text-ink transition-colors duration-200 hover:bg-muted active:bg-muted/80"
+                  >
+                    Register as Patient
+                    <ArrowRight aria-hidden="true" className="size-3.5 text-muted-foreground" />
+                  </Link>
+                  <Link
+                    to="/register/doctor"
+                    className="flex items-center justify-between rounded-md border border-border bg-surface px-3.5 py-2.5 text-[13px] font-semibold text-ink transition-colors duration-200 hover:bg-muted active:bg-muted/80"
+                  >
+                    Register as Doctor
+                    <ArrowRight aria-hidden="true" className="size-3.5 text-muted-foreground" />
+                  </Link>
+                </div>
+              </div>
+            }
+          />
+        </div>
       </div>
     </div>
   );

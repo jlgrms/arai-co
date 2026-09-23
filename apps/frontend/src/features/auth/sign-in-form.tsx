@@ -30,6 +30,16 @@ export interface SignInFormProps {
   submitLabel?: string;
   /** Rendered under the fields — registration links etc. */
   footer?: React.ReactNode;
+  /**
+   * Button variant for the submit control.
+   *
+   * Defaults to `cta` — the coral, large-and-bold treatment v3 reserves for the
+   * single most prominent action on a screen. The /login route also renders
+   * this form, and its submit IS that screen's primary action, so the default
+   * is correct in both mount points today. The prop exists so a future caller
+   * can opt out rather than being stuck with coral.
+   */
+  submitVariant?: React.ComponentProps<typeof Button>['variant'];
 }
 
 /** Form-level error alert, driven by the parsed backend envelope. */
@@ -78,7 +88,12 @@ export function useRedirectAfterAuth(): string | null {
   }, [location.state]);
 }
 
-export function SignInForm({ idPrefix, submitLabel = 'Sign in', footer }: SignInFormProps) {
+export function SignInForm({
+  idPrefix,
+  submitLabel = 'Sign in',
+  footer,
+  submitVariant = 'cta',
+}: SignInFormProps) {
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -145,7 +160,7 @@ export function SignInForm({ idPrefix, submitLabel = 'Sign in', footer }: SignIn
         <FieldError id={`${passwordId}-error`} message={fieldErrs.password} />
       </div>
 
-      <Button type="submit" className="w-full" size="lg" disabled={submitting}>
+      <Button type="submit" variant={submitVariant} className="w-full" size="lg" disabled={submitting}>
         {submitting ? 'Signing in…' : submitLabel}
       </Button>
 

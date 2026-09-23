@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Menu, UserRound } from 'lucide-react';
 
 import { BrandLogo } from '@/components/brand/logo';
@@ -14,7 +14,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/auth-context';
 import type { Role } from '@/features/auth/types';
-import { HOME_BY_ROLE } from '@/app/nav';
+import { HOME_BY_ROLE, PUBLIC_HOME_PATH } from '@/app/nav';
 import { NotificationBell } from '@/features/notifications/notification-bell';
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -42,6 +42,23 @@ interface AppHeaderProps {
  */
 export function AppHeader({ role, onOpenNav, showNotifications }: AppHeaderProps) {
   const { logout, user } = useAuth();
+  const navigate = useNavigate();
+
+  /**
+   * Sign out, then land on the public marketing page.
+   *
+   * The navigation is explicit here rather than left to the route guard. The
+   * guard DOES redirect an unauthenticated user, but to /login — correct for
+   * someone who deep-links into a guarded route, wrong for someone who just
+   * chose to sign out (they would be shown a sign-in form they deliberately
+   * dismissed). Racing those two is also what makes the destination
+   * order-dependent, so the intent is stated once, here, at the moment the user
+   * expresses it.
+   */
+  function handleSignOut() {
+    logout();
+    navigate(PUBLIC_HOME_PATH, { replace: true });
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-surface px-4 lg:px-6">
@@ -83,7 +100,7 @@ export function AppHeader({ role, onOpenNav, showNotifications }: AppHeaderProps
               <UserRound /> Account settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => logout()}>
+            <DropdownMenuItem onSelect={handleSignOut}>
               <LogOut /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
