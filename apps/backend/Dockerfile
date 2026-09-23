@@ -58,6 +58,13 @@ COPY apps/backend/package.json ./apps/backend/package.json
 # new version takes traffic. Without prisma/ that command has no schema and no
 # migrations to apply, and the deploy fails at the release step.
 COPY apps/backend/prisma ./apps/backend/prisma
+# Copy the workspace root manifest too. It carries the `packageManager` pin
+# (pnpm@9.12.0) and the `onlyBuiltDependencies` allowlist. Without it present in
+# the runtime image, any pnpm invocation in this container (e.g. a release
+# command) makes Corepack fall back to downloading its own bundled pnpm major
+# (12.x), which then fails hard with ERR_PNPM_IGNORED_BUILDS because the
+# allowlist is invisible. Keeping the manifest here makes the pin authoritative.
+COPY package.json ./package.json
 WORKDIR /app/apps/backend
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

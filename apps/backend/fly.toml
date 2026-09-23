@@ -1,51 +1,41 @@
-# Fly.io config for the backend API (NestJS + Prisma).
+# fly.toml app configuration file generated for telehealth-backend-dry-mountain-2145 on 2026-09-23T09:12:40+08:00
 #
-# Pre-staged so `fly launch` has little to guess. It will still offer to create
-# an app name, region, and Postgres; accept those and it will adopt this file.
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
-# IMPORTANT — build context is the REPO ROOT, not apps/backend. The Dockerfile
-# copies pnpm-workspace.yaml, the root lockfile, and apps/frontend/package.json
-# (the workspace install needs every member manifest present). Launch it from the
-# repo root or set the context explicitly:
-#
-#   fly launch --dockerfile apps/backend/Dockerfile --config apps/backend/fly.toml
-#
-# Secrets to set before the first deploy (never committed):
-#   fly secrets set DATABASE_URL=... JWT_SECRET=... FRONTEND_URL=https://<frontend>.fly.dev
-#   fly secrets set DEEPSEEK_API_KEY=...        # optional; AI matching degrades gracefully
 
-app = "telehealth-backend"
-primary_region = "sin" # Singapore — closest to the PH-based demo audience
+app = 'telehealth-backend-dry-mountain-2145'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
-# `prisma migrate deploy` applies pending migrations and exits. Run as the
-# release command so the schema is in sync BEFORE the new version takes traffic;
-# if it fails, the deploy aborts and the old release keeps serving rather than
-# booting an app whose code expects columns the database does not have.
 [deploy]
-  release_command = "pnpm --filter @telehealth/backend prisma migrate deploy"
+  # Run Prisma via the CLI already baked into the image's node_modules. Do NOT
+  # use `pnpm --filter ...` here: in the release container that has no workspace
+  # manifest it triggers a full dependency REINSTALL at runtime, which makes
+  # Corepack pull a fresh pnpm major (12.x) and abort with
+  # ERR_PNPM_IGNORED_BUILDS. `npx --no-install` never resolves or downloads
+  # anything — it only executes the local binary.
+  release_command = 'npx --no-install prisma migrate deploy'
 
 [env]
-  NODE_ENV = "production"
-  BACKEND_PORT = "8080"
+  BACKEND_PORT = '8080'
+  NODE_ENV = 'production'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  # One small machine is plenty for a demo; don't keep an idle one running.
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "20s"
-    method = "GET"
-    path = "/health"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '20s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = 'shared-cpu-1x'
+  memory = '512mb'
