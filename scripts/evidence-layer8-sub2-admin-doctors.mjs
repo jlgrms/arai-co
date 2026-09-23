@@ -4,11 +4,11 @@
 //
 //   R1  /admin/doctors renders the real review table, not the placeholder
 //   R2  every rendered row matches GET /admin/doctors exactly (by profile id)
-//   R3  the seeded baseline is all-APPROVED, so the pending queue is EMPTY
-//       (see DEFERRED.md item 2 — the empty state is load-bearing here)
+//   R3  the seeded baseline mixes APPROVED / PENDING / REJECTED (6/1/1)
 //   R4  search narrows server-side by name
 //   R5  search also matches SPECIALIZATION (a different ILIKE branch)
-//   R6  the status filter narrows to exactly the pending profile
+//   R6  the status filter narrows to exactly the PENDING set the API reports
+//       (no longer vacuous — the seed provides a PENDING doctor; see item 3)
 //   R7  a fresh doctor registration arrives PENDING and does not appear in
 //       patient-facing discovery yet
 //   R8  approve: confirm dialog, badge flips, PERSISTED to the API
@@ -32,10 +32,13 @@
 //   - DELETES it by user id on exit, on the success path AND on the failure
 //     path AND on SIGINT — see the finally/exit hooks at the bottom.
 //
-// Why a doctor and not a patient: the seeded baseline has NO pending/rejected
-// doctor (seed.ts writes APPROVED for all six), so the review queue cannot be
-// exercised at all without creating one. That is a real coverage gap, not a
-// convenience — see DEFERRED.md item 2.
+// Why a doctor and not a patient: the review queue MUTATES doctor profiles, so
+// the only way to exercise approve/reject/reopen/edit end-to-end is to own a
+// doctor whose state this run may change. The seed now also provides a PENDING
+// and a REJECTED doctor (DEFERRED item 3), so the queue is no longer empty on a
+// fresh database and the filter steps are no longer vacuous — but this harness
+// must still create its own, because it cannot mutate a seeded account without
+// leaving that account in a changed state.
 //
 // Deletion goes through SQL because there is NO user-DELETE endpoint (only
 // Availability has one). It shells out to the same docker exec psql the cleanup
@@ -282,22 +285,35 @@ await step('R2 every rendered row matches GET /admin/doctors exactly (by profile
   return `${rows.length} rows, profile ids identical to API`;
 });
 
-await step('R3 the seeded baseline is all-APPROVED, so the pending queue starts empty', async () => {
+await step('R3 the seeded baseline mixes APPROVED / PENDING / REJECTED', async () => {
+  // This step USED to assert "6 doctors, all APPROVED, so the pending queue is
+  // empty apart from the fixture". That premise stopped being true when DEFERRED
+  // item 3 was resolved: the seed now includes `dr.pending@example.com` and
+  // `dr.rejected@example.com` so the review queue has content on a fresh seed,
+  // rather than only after this harness has run.
+  //
+  // The assertion is now the honest version of the same question — what states
+  // does the seed provide? — and it is deliberately an EQUALITY against the
+  // live API rather than a hardcoded count, so it cannot silently rot into a
+  // fixture-database assertion.
   const seeded = await apiDoctors();
   const seededNonFixture = seeded.filter((d) => d.user.email !== FIXTURE_EMAIL);
-  const statuses = new Set(seededNonFixture.map((d) => d.approvalStatus));
-  assert(
-    seededNonFixture.length === 6 && statuses.size === 1 && statuses.has('APPROVED'),
-    `seed expectation changed: ${seededNonFixture.length} doctors, statuses=${[...statuses].join(',')}`,
-  );
-  // And the UI's PENDING filter must therefore be empty apart from the fixture.
-  await navigate('/admin/doctors', 2600);
-  await evaluate(setValue('#admin-doctor-status', 'PENDING'));
-  await sleep(900);
-  const rows = await evaluate(`Array.from(document.querySelectorAll('[data-testid^="admin-doctor-row-"]')).map(el => el.getAttribute('data-testid').replace('admin-doctor-row-',''))`);
-  assert(rows.length === 1, `expected only the fixture pending, got ${rows.length}`);
-  assert(rows[0] === fixture.id, `unexpected pending row ${rows[0]}`);
-  return '6 seeded doctors, all APPROVED; only this run\u2019s fixture is pending';
+  const statuses = {};
+  for (const d of seededNonFixture) statuses[d.approvalStatus] = (statuses[d.approvalStatus] || 0) + 1;
+
+  assert(seededNonFixture.length === 8, `seed expectation changed: ${seededNonFixture.length} seeded doctors, expected 8`);
+  assert(statuses.APPROVED === 6, `expected 6 APPROVED seeded doctors, got ${statuses.APPROVED}`);
+  assert(statuses.PENDING === 1, `expected 1 PENDING seeded doctor, got ${statuses.PENDING}`);
+  assert(statuses.REJECTED === 1, `expected 1 REJECTED seeded doctor, got ${statuses.REJECTED}`);
+
+  // The named fixtures must be the ones carrying those states, so a future
+  // reseed cannot satisfy the counts with different rows.
+  const pending = seededNonFixture.find((d) => d.approvalStatus === 'PENDING');
+  const rejected = seededNonFixture.find((d) => d.approvalStatus === 'REJECTED');
+  assert(pending.user.email === 'dr.pending@example.com', `PENDING fixture is ${pending.user.email}`);
+  assert(rejected.user.email === 'dr.rejected@example.com', `REJECTED fixture is ${rejected.user.email}`);
+
+  return '8 seeded doctors — 6 APPROVED, 1 PENDING (dr.pending), 1 REJECTED (dr.rejected)';
 });
 
 await step('R4 search narrows the list server-side by name', async () => {
@@ -323,15 +339,34 @@ await step('R5 search also matches SPECIALIZATION (a different ILIKE branch)', a
   return `${rows} rows matched "${FIXTURE_SPECIALIZATION}" via the specialization ILIKE`;
 });
 
-await step('R6 the status filter narrows to exactly the pending profile', async () => {
+await step('R6 the status filter narrows to exactly the PENDING set', async () => {
+  // NOTE: this step was VACUOUS before DEFERRED item 3 was resolved. The seed had
+  // no PENDING doctor, so the PENDING filter's correct result was exactly the one
+  // fixture this run created — "the filter works" and "the filter does nothing"
+  // were indistinguishable. The seed now provides `dr.pending@example.com`, so
+  // the filter must return that row AS WELL as the fixture, and the assertion
+  // below compares against the API's own PENDING set rather than a literal.
   await navigate('/admin/doctors', 2600);
   await evaluate(setValue('#admin-doctor-status', 'PENDING'));
   await sleep(900);
+
   const rows = await evaluate(`Array.from(document.querySelectorAll('[data-testid^="admin-doctor-row-"]')).map(el => el.getAttribute('data-testid').replace('admin-doctor-row-',''))`);
-  assert(rows.length === 1 && rows[0] === fixture.id, `PENDING filter returned ${rows.length} row(s)`);
+  const expected = (await apiDoctors())
+    .filter((d) => d.approvalStatus === 'PENDING')
+    .map((d) => d.id)
+    .sort();
+
+  // The filter must actually discriminate: a minimum of 2 rows means it cannot
+  // pass by returning a single hardcoded result.
+  assert(expected.length >= 2, `expected the seed PENDING fixture plus this run's doctor, API reports ${expected.length}`);
+  assert(rows.length === expected.length, `PENDING filter returned ${rows.length} row(s), API reports ${expected.length}`);
+  const got = [...rows].sort();
+  assert(JSON.stringify(got) === JSON.stringify(expected), `PENDING rows differ from API:\n got=${got.join(',')}\n exp=${expected.join(',')}`);
+  assert(rows.includes(fixture.id), 'the fixture is missing from its own filtered result');
+
   const body = await evaluate('document.body.innerText');
   assert(body.includes('Pending review'), 'PENDING badge not labelled readably');
-  return 'exactly the fixture, badged "Pending review"';
+  return `${rows.length} PENDING rows (the seed fixture + this run's), badged "Pending review"`;
 });
 
 await step('R7 a pending doctor is NOT in patient-facing discovery yet', async () => {

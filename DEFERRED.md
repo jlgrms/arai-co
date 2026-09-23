@@ -104,11 +104,15 @@ sub-item.
 
 ## Documented baseline (post-clean)
 
+**UPDATED (item 3 resolution):** the seed now includes two unreviewed doctors
+(`dr.pending`, `dr.rejected`), so User and DoctorProfile each moved up by two.
+See item 3.
+
 | Table | Count |
 | --- | --- |
-| User | 11 (1 admin, 6 doctors, 3 seed patients, john@test.com) |
+| User | 13 (1 admin, 8 doctors, 3 seed patients, john@test.com) |
 | PatientProfile | 4 |
-| DoctorProfile | 6 |
+| DoctorProfile | 8 (6 APPROVED, 1 PENDING, 1 REJECTED) |
 | Appointment | 7 |
 | ConsultationSession | 7 |
 | Availability | 31 (Patel 6, others 5; 0 stray far-future) |
@@ -132,28 +136,65 @@ and Notification reads 0.
 
 | Table | Count |
 | --- | --- |
-| User | 11 (1 admin, 6 doctors, 3 seed patients, 1 SUSPENDED demo patient) |
+| User | 13 (1 admin, 8 doctors, 3 seed patients, 1 SUSPENDED demo patient) |
 | PatientProfile | 4 (3 + the SUSPENDED demo patient) |
-| DoctorProfile | 6 |
+| DoctorProfile | 8 (6 APPROVED + 1 PENDING + 1 REJECTED — see item 3) |
 | Appointment | 5 (3 COMPLETED history + 1 upcoming BOOKED + 1 notification-fixture BOOKED, all Jordan's) |
 | ConsultationSession | 5 |
-| Availability | 32 (31 scheduled + 1 far-future notification-fixture slot, booked) |
+| Availability | 32 (31 scheduled + 1 far-future notification-fixture slot, booked) — the two unreviewed doctors deliberately have NONE |
 | Notification | 2 (`jordan.lee` + `dr.patel`, from the fixture booking; 0 if the backend was down at seed time) |
 | SymptomSpecialtyMap | 18 (14 original + `headache`, `migraine`, `sore throat`, `stomach ache`) |
 
 **UPDATED (item 12 resolution):** the seed also creates
 `suspended.patient@example.com` (PATIENT, SUSPENDED, `PatientPass123!`) so the
 login-403 branch is reachable. That moved User 10 → 11 and PatientProfile 3 → 4.
-Anything asserting a hard account count must now expect **11**. Note
-`GET /admin/users` excludes ADMIN, so it returns **10** on a fresh seed — the
-harnesses that care compare against a live API read rather than a literal.
+**UPDATED again (item 3 resolution):** the two unreviewed doctors moved User
+11 → 13 and DoctorProfile 6 → 8. Anything asserting a hard account count must now
+expect **13**. Note `GET /admin/users` excludes ADMIN, so it returns **12** on a
+fresh seed — the harnesses that care compare against a live API read rather than a
+literal.
 
 **Two baselines, and the difference matters.** `john@test.com` and its three
 appointments are hand-made data that the cleaner deliberately never matches, so
 they exist in the *post-clean* baseline but not in a fresh seed. Any harness that
 asserts a hard count must say which of the two it expects. A reseed silently
-drops the post-clean baseline to the seed baseline — which is what happened here,
-and why User reads 10 rather than 11.
+drops the post-clean baseline to the seed baseline.
+
+## Regression sweep (item 3 resolution)
+
+All harnesses were re-run after adding the two unreviewed doctors, because a seed
+change is the one edit most likely to break a harness that measured seed state:
+
+| Harness | Result |
+| --- | --- |
+| `evidence-layer8-sub2-admin-doctors.mjs` | 19/19 pass (R3 + R6 rewritten) |
+| `evidence-layer8-sub1-admin-users.mjs` | 16/16 pass (U6 rewritten) |
+| `evidence-layer6-sub2-discover.mjs` | 10/10 pass, unchanged |
+| `evidence-layer6-sub3-matching.mjs` | 10/10 pass, unchanged |
+| `evidence-layer6-sub4-booking.mjs` | 12/12 pass, unchanged |
+| `evidence-layer6-sub5-consult.mjs` | 12/12 pass, unchanged |
+| `evidence-layer6-sub6-records.mjs` | 12/12 pass, unchanged |
+| `evidence-layer7-sub1-doctor-profile.mjs` | 10/10 pass, unchanged |
+| `evidence-layer7-sub2-doctor-schedule.mjs` | 13/13 pass, unchanged |
+| `evidence-layer7-sub3-doctor-records.mjs` | 13/13 pass, unchanged |
+| `evidence-layer7-sub4-doctor-consult.mjs` | 15/15 pass, unchanged |
+| `evidence-layer8-sub3-admin-appointments.mjs` | 16/16 pass, unchanged |
+| `evidence-layer8-sub4-admin-dashboard.mjs` | 11/11 pass, unchanged |
+| `evidence-layer8-sub5-admin-audit.mjs` | 15/15 pass, unchanged |
+| `evidence-cancelled-join.mjs` | 13/13 pass, `reclaimed 10/10` |
+| `evidence-sub3-happy.mjs` | pass, `reclaimed 2/2` |
+| `evidence-sub3-auth.mjs` | pass |
+| `evidence-sub4-from-roundtrip.mjs` | pass |
+| `evidence-sub4-guards.mjs` | pass |
+| `evidence-sub5-backend.mjs` | `PASS=19 FAIL=0`, `reclaimed 5/5` |
+| `evidence-sub5-bell-ui.mjs` | pass, `reclaimed 10/10` |
+| `evidence-layer9-landing.mjs` | **1 pre-existing FAIL — see item 13** |
+
+Suites unchanged: jest 143/143, vitest 415/415, `pnpm lint` exit 0, `tsc -b`
+exit 0 for both packages. The seed file is NOT covered by `pnpm lint` or
+`tsc -b` (their scope is `src/**`), so it was checked explicitly with
+`npx eslint prisma/seed.ts` and a direct `tsc --noEmit` invocation — both exit 0.
+Post-sweep `db-clean-harness-users.sh` dry run matches 0 accounts.
 
 ## 2. `evidence-cancelled-join.mjs` over-reports its cleanup — RESOLVED
 
@@ -250,66 +291,113 @@ appointments, +2 sessions and +8 notifications.
 `tsc -b` exit 0 for both packages after the change (the harness is unbuilt script
 code, so these confirm no collateral damage rather than exercising it).
 
-## 3. No seeded PENDING/REJECTED doctor — the review queue is empty by default
+## 3. No seeded PENDING/REJECTED doctor — RESOLVED
 
-**Status:** accepted by explicit stakeholder decision (option B1, Layer 8
-sub-item 2), with a named leak risk. Not dropped.
+**Status:** RESOLVED (stakeholder direction: seed the states rather than rely on
+a harness to create them). The seed now includes one PENDING and one REJECTED
+doctor, so the review queue has content on a fresh database.
 
-**What is owed.** `seed.ts` writes `approvalStatus: APPROVED` for all six seeded
+**What was owed.** `seed.ts` wrote `approvalStatus: APPROVED` for all six seeded
 doctors (the only `approvalStatus` write in the seed). The schema default is
-`PENDING`, but nothing is ever seeded in that state. Consequence: on a fresh
-`docker compose up`, the admin Doctor Review screen's **pending queue is empty**,
-so the first thing a reviewer sees is the empty state rather than the review
+`PENDING`, but nothing was ever seeded in that state. Consequence: on a fresh
+`docker compose up`, the admin Doctor Review screen's **pending queue was empty**,
+so the first thing a reviewer saw was the empty state rather than the review
 workflow the sub-item exists to demonstrate.
 
-**Why it was accepted rather than fixed.** Seeding a `PENDING` doctor was option
-B3 and was declined because it would change the documented baseline above (6
-doctors, all APPROVED) and every harness asserting that count. The stakeholder
-chose B1: a harness creates its own throwaway `PENDING` doctor, exercises
-approve → reject → reopen → edit, and **reclaims it on exit**.
+**Why it was originally accepted (option B1).** Seeding a `PENDING` doctor was
+option B3 and was declined in case it changed the documented baseline and every
+harness asserting a doctor count. The stakeholder chose B1: a harness creates its
+own throwaway `PENDING` doctor, exercises approve → reject → reopen → edit, and
+reclaims it on exit. That mitigation worked and is retained — see below — but it
+left the *product* demonstrating an empty queue on a cold start, which is a
+seeding defect and not a harness problem.
 
-**Delivered mitigation.** `scripts/evidence-layer8-sub2-admin-doctors.mjs`
-registers a doctor via `POST /auth/register/doctor` (which arrives `PENDING`),
-exercises the full review lifecycle against it, and deletes it by **user id
-captured at registration** — never by email pattern — on the success path, the
-failure path (`process.on('exit')`), and `SIGINT`. Because there is no
-user-DELETE endpoint, the delete is SQL via `docker exec psql`, matching
-`db-clean-harness-users.sh`.
+**Resolution — seed both non-approved states.** Two doctors are now seeded
+alongside the six APPROVED ones:
 
-**Leak risk (the accepted cost of B1).** This is the **first harness in the repo
-that cleans up after itself**, so its reclaim path is newer and less proven than
-the residue-everything pattern it replaces. Specific risks:
+| Email | Name | Specialization | approvalStatus |
+| --- | --- | --- | --- |
+| `dr.pending@example.com` | Dr. Nadia Haddad | Neurology | **PENDING** |
+| `dr.rejected@example.com` | Dr. Victor Osei | Orthopedics | **REJECTED** |
 
-1. **`kill -9` or a hard teardown skips `process.on('exit')`.** Node runs exit
-   hooks for normal exit, uncaught throws, and SIGINT — but not `SIGKILL`, and
-   not if the process dies before the hook's `spawnSync` completes. A fixture
-   would then survive as an orphaned `PENDING` doctor sitting in the review queue.
-2. **The delete shells out to `docker`.** If the `telehealth-postgres` container
-   is renamed or absent, `spawnSync` fails and the fixture survives. The harness
-   prints `DELETE FAILED`, and then verifies absence via `GET /admin/doctors`
-   rather than trusting the delete's exit code — but it cannot repair.
-3. **Audit rows are deliberately NOT reclaimed.** The audit log is append-only by
-   design, so each run adds ~4 `DOCTOR_APPROVAL_UPDATE` entries referencing a
-   now-deleted profile id. Intended (the log must not be rewritten), but it means
-   the admin Audit Log view accumulates rows pointing at a doctor that no longer
-   exists.
+Both share the doctor password (`DoctorPass123!`). Three design points, each of
+which an earlier draft got wrong:
 
-**Safety net.** `l8s2%` was added to `PREFIXES` in `db-clean-harness-users.sh`,
-so even a leaked fixture is reclaimable by
-`scripts/db-clean-harness-users.sh --apply`. The prefix is a net, not the
-mechanism — the harness is expected to reclaim itself.
+1. **They are NOT pushed to `doctorProfiles`.** That array drives two things they
+   must stay out of. (a) Availability is seeded per entry — an unreviewed doctor
+   with bookable slots would become reachable by booking if it were ever approved
+   by accident. (b) `consultationSeeds` indexes into the array **by position**, so
+   appending to it would silently repoint three seeded consultations at the wrong
+   doctors. They are created in their own loop and pushed to neither.
+2. **Both states, not just PENDING.** PENDING is the queue's default content;
+   REJECTED is the other non-approved status the filter must render. Having one of
+   each means the status filter discriminates between three buckets instead of
+   two. The rejected doctor's biography records the decision, matching how the
+   SUSPENDED fixture carries a `stateReason`, so the screen's inline reason has
+   something real to show.
+3. **They are correctly invisible to patients.** `doctors.service.ts` filters
+   `approvalStatus: APPROVED` on both `discover` and `getPublicDoctor`, so the
+   admin review queue is the only screen that sees them. Verified, not assumed —
+   `evidence-layer6-sub2-discover.mjs` (D1, set-equality against the live API) and
+   `evidence-layer6-sub3-matching.mjs` both still pass unchanged, and
+   `evidence-layer8-sub2-admin-doctors.mjs` R7 re-confirms a PENDING doctor is
+   absent from discovery.
 
-**Verification performed at Layer 8 sub-item 2.** Both paths were exercised, not
-assumed: the happy path reclaims (fixture verified absent from
-`GET /admin/doctors`), and an injected mid-run throw confirmed the exit hook
-still deletes the fixture (probe crashed with exit 1, delete ran, row gone).
-Post-run `db-clean-harness-users.sh --apply` matched **0** accounts and left the
-baseline at User 11 / DoctorProfile 6, confirming zero residue.
+**The harness mitigation is retained.** `evidence-layer8-sub2-admin-doctors.mjs`
+still registers its own throwaway doctor and reclaims it by **user id captured at
+registration** — never by email pattern — on the success path, the failure path
+(`process.on('exit')`), and `SIGINT`. It must: it *mutates* approval status, and
+it cannot mutate a seeded account without leaving that account in a changed
+state. What changed is that the queue is no longer empty for a human reviewer who
+has not run a harness.
 
-**What it would still take.** Fold this harness into the item 1 work at Layer 10
-so the eight pre-existing leakers adopt the same reclaim-on-exit pattern, and
-decide whether audit rows pointing at deleted profiles should be filtered out of
-the Audit Log view.
+**Two hidden dependencies this broke, found by running the harnesses.** Both
+were hardcoded counts that silently assumed "6 doctors, all APPROVED":
+
+- `evidence-layer8-sub2-admin-doctors.mjs` **R3** asserted
+  `seededNonFixture.length === 6 && statuses.size === 1 && statuses.has('APPROVED')`
+  — i.e. it asserted the *absence* of the very fixture this item asked for. It now
+  asserts the honest thing (8 seeded doctors: 6 APPROVED / 1 PENDING / 1 REJECTED),
+  checks the named fixture emails carry those states, and is an equality against
+  the live API rather than a literal.
+- `evidence-layer8-sub1-admin-users.mjs` **U6** asserted
+  `expectedDoctors.length === 6` and failed with `seed expectation changed: 8
+  doctors`. It now compares the rendered rows to the API's DOCTOR set **by id**,
+  which proves the thing it was actually for — a DOCTOR-only filter returns
+  doctors and only doctors — without pinning a fixture count.
+
+**Measured — R6 went from VACUOUS to discriminating.** This is the substantive
+win. With no seeded PENDING doctor, the PENDING filter's correct result was
+exactly the one fixture the run created, so "the filter works" and "the filter
+does nothing" were indistinguishable. Observed directly after reseeding:
+
+```
+FAIL  R6 the status filter narrows to exactly the pending profile — PENDING filter returned 2 row(s)
+```
+
+That is the assertion doing its job: the filter now visibly returns *more than the
+fixture*. R6 was rewritten to compare against the API's own PENDING set and to
+require `expected.length >= 2`, so it can no longer pass on a single hardcoded
+result. It now reports `2 PENDING rows (the seed fixture + this run's)`.
+
+**Verification performed.** Reseeded, then both previously-failing harnesses:
+`evidence-layer8-sub2-admin-doctors.mjs` exit 0, **19/19 passed**;
+`evidence-layer8-sub1-admin-users.mjs` exit 0, **16/16 passed**. Every other
+harness re-run and green (see the regression list below). Post-run
+`db-clean-harness-users.sh` dry run matches **0** accounts, confirming the two new
+accounts are correctly treated as seeded data rather than harness residue —
+its `PREFIXES` are harness prefixes, and neither `dr.pending@` nor `dr.rejected@`
+matches one.
+
+**Baseline change (intended):** User 11 → 13, DoctorProfile 6 → 8. Anything
+asserting a hard account count must now expect **13** (and `GET /admin/users`
+returns **12**, since it excludes ADMIN).
+
+**What it would still take.** Fold the `l8s2` harness into the item 1 helper so
+its bespoke reclaim block is replaced by `scripts/lib/reclaim.mjs`, and decide
+whether audit rows pointing at deleted profiles should be filtered out of the
+Audit Log view. The leak risks recorded under B1 still apply to that harness —
+its reclaim path is its own, not the shared helper's.
 
 ## 4. Timestamps render in UTC
 
@@ -468,16 +556,16 @@ values each and do discriminate; R9 even asserts the chosen facet matched more
 than one row so it cannot pass on a single-row match.
 
 **Why it was not fixed.** Creating a second admin would mean either seeding one
-(changing the documented baseline of User 11) or having a harness register one,
-which for a read-only sub-item would be a fixture created solely to make an
-assertion non-vacuous. Jean's Flag 8 decision for this sub-item family was to
-refuse exactly that. The gap is recorded rather than papered over.
+(changing the documented baseline — User 13 as of item 3) or having a harness
+register one, which for a read-only sub-item would be a fixture created solely to
+make an assertion non-vacuous. Jean's Flag 8 decision for this sub-item family was
+to refuse exactly that. The gap is recorded rather than papered over.
 
 **What it would take.** Either seed a second ADMIN account (updating the baseline
-and every harness that asserts 11 users), or accept that multi-admin grouping is
-verified by unit test only. Note this is also the seam where a real deployment
-would diverge: with several admins, the `administrators have acted` line under the
-table and the admin facet both become load-bearing.
+and every harness that asserts the current user count), or accept that multi-admin
+grouping is verified by unit test only. Note this is also the seam where a real
+deployment would diverge: with several admins, the `administrators have acted`
+line under the table and the admin facet both become load-bearing.
 
 ## 9. The audit log is unbounded — no pagination, and it grows forever
 
@@ -815,3 +903,35 @@ baseline section above.
 (incl. the fixture)` and U2/U9 showing 12 rows (11 seeded + the run's fixture),
 ids identical to the API.
 
+## 13. `evidence-layer9-landing.mjs` R9 fails — PRE-EXISTING, not caused by seed work
+
+**Status:** open, low priority. Recorded so the failure is not misattributed.
+
+**The failure.**
+
+```
+FAIL  R9 the step indicator is HONEST — only step 1 is claimed —
+      expected exactly 1 completed step (Concern) once ready, got 0
+```
+
+**Why it is recorded here.** It was first observed while re-running the harness
+sweep for item 3, so it could easily be mistaken for damage from the seed change.
+It is not. Proven by stashing the seed/harness edits, reseeding to the pristine
+state, and re-running: the harness fails **identically** on unmodified `HEAD`.
+
+**What R9 does.** It types `masakit ang tiyan ko` into `#concern` and then counts
+landing-page step bars whose computed `backgroundColor` is coral
+(`255, 127, 80`), expecting exactly 1 (the completed "Concern" step). It observes
+0. Nothing in that path touches doctor counts, approval status, or any table the
+seed change altered.
+
+**Why it is plausibly a real product or assertion bug, not a test-env artefact.**
+Either the step bar is not being highlighted when the concern is populated, or the
+coral constant no longer matches what the theme renders — recall item 1 of the
+Task 1 migration re-pointed the `--brand-*` variables, so a literal `255, 127, 80`
+in an assertion is exactly the kind of value that a token change can invalidate
+while the UI is correct. **The assertion may be testing a hardcoded colour rather
+than the DOM's behaviour**, which is the same trap recorded in item 10 (R17
+querying its own hardcoded phrase list) and item 7 (R10 asserting invented copy).
+Needs a human look in a browser to say which side is wrong — hence deferred rather
+than guessed at.

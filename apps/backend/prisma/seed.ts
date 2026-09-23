@@ -21,17 +21,28 @@ const BCRYPT_ROUNDS = 10;
 //     admin@example.com          AdminPass123!
 //
 //   DOCTORS (all share DoctorPass123!)
-//     dr.chen@example.com     Dr. Wei Chen       Cardiology
-//     dr.okafor@example.com   Dr. Amara Okafor   Dermatology
-//     dr.patel@example.com    Dr. Rohan Patel    General Medicine
-//     dr.reyes@example.com    Dr. Camila Reyes   General Medicine
-//     dr.nguyen@example.com   Dr. Linh Nguyen    Pediatrics
-//     dr.silva@example.com    Dr. Mateo Silva    Psychiatry
+//     dr.chen@example.com     Dr. Wei Chen       Cardiology      APPROVED
+//     dr.okafor@example.com   Dr. Amara Okafor   Dermatology     APPROVED
+//     dr.patel@example.com    Dr. Rohan Patel    General Medicine APPROVED
+//     dr.reyes@example.com    Dr. Camila Reyes   General Medicine APPROVED
+//     dr.nguyen@example.com   Dr. Linh Nguyen    Pediatrics      APPROVED
+//     dr.silva@example.com    Dr. Mateo Silva    Psychiatry      APPROVED
+//
+//   UNREVIEWED DOCTORS (same password — the admin Doctor Review queue fixtures)
+//     dr.pending@example.com   Dr. Nadia Haddad   Neurology     PENDING
+//     dr.rejected@example.com  Dr. Victor Osei    Orthopedics   REJECTED
+//
+//   These two exist so the review queue has content on a fresh seed rather than
+//   only after a harness has run (DEFERRED item 3). Both are correctly absent
+//   from patient-facing discovery, which filters `approvalStatus: APPROVED`.
 //
 //   PATIENTS (all share PatientPass123!)
 //     jordan.lee@example.com   Jordan Lee
 //     sam.rivera@example.com   Sam Rivera
 //     alex.kim@example.com     Alex Kim
+//
+//   SUSPENDED PATIENT (same password — the login-403 fixture)
+//     suspended.patient@example.com   Suspended Demo
 //
 //   CONSULTATION HISTORY (Jordan Lee only — see the block at the end of main()).
 //   Jordan has 3 COMPLETED consultations with notes and prescriptions across
@@ -106,6 +117,75 @@ async function main(): Promise<void> {
       },
     });
     doctorProfiles.push(profile);
+  }
+
+  // -------------------------------------------------------------------------
+  // UNREVIEWED DOCTORS — the doctor-review queue's own fixtures (DEFERRED item 3).
+  //
+  // WHY: every doctor above is written APPROVED. The schema default is PENDING,
+  // but nothing was ever *seeded* in that state, so on a fresh `docker compose
+  // up` the admin Doctor Review screen's pending queue was EMPTY and the first
+  // thing a reviewer saw was the empty state rather than the workflow the screen
+  // exists to demonstrate. `evidence-layer8-sub2-admin-doctors.mjs` covered this
+  // by registering a throwaway doctor per run, which works but means the
+  // demonstration depends on a harness having run.
+  //
+  // WHY THESE ARE NOT IN `doctorProfiles`: that array drives two things this pair
+  // must stay out of. (1) Availability is seeded per entry — an unreviewed doctor
+  // with bookable slots would be reachable by booking if it were ever approved
+  // by accident, and PENDING/REJECTED doctors are correctly excluded from patient
+  // discovery (`doctors.service.ts` filters `approvalStatus: APPROVED` on both
+  // `discover` and `getPublicDoctor`). (2) `consultationSeeds` indexes into it by
+  // position, so appending here would silently repoint those consultations at the
+  // wrong doctors. They are created separately and pushed to neither.
+  //
+  // WHY BOTH STATES: PENDING is the queue's default content; REJECTED is the other
+  // non-approved status the review UI must render, and having one of each means
+  // the status filter discriminates between three buckets instead of two. The
+  // biography of the rejected one records the decision so the screen's inline
+  // reason has something real to show, matching how the SUSPENDED fixture above
+  // carries a `stateReason`.
+  //
+  // These ARE documented baseline accounts (DoctorProfile 6 -> 8, User 11 -> 13).
+  // Anything asserting a hard doctor count must now expect 8.
+  // -------------------------------------------------------------------------
+  const unreviewedDoctorSeeds = [
+    {
+      email: 'dr.pending@example.com',
+      name: 'Dr. Nadia Haddad',
+      specialization: 'Neurology',
+      approvalStatus: ApprovalStatus.PENDING,
+      biography:
+        'Neurologist with a focus on headache disorders and migraine management. Registration submitted and awaiting review.',
+    },
+    {
+      email: 'dr.rejected@example.com',
+      name: 'Dr. Victor Osei',
+      specialization: 'Orthopedics',
+      approvalStatus: ApprovalStatus.REJECTED,
+      biography:
+        'Orthopedic surgeon. Registration was rejected during review — the submitted credentials could not be verified against the licensing register. Kept so the rejected state is reachable without a harness.',
+    },
+  ];
+
+  for (const d of unreviewedDoctorSeeds) {
+    const user = await prisma.user.create({
+      data: {
+        email: d.email,
+        passwordHash: doctorPasswordHash,
+        role: Role.DOCTOR,
+        accountState: AccountState.ACTIVE,
+      },
+    });
+    await prisma.doctorProfile.create({
+      data: {
+        userId: user.id,
+        name: d.name,
+        biography: d.biography,
+        specialization: d.specialization,
+        approvalStatus: d.approvalStatus,
+      },
+    });
   }
 
   // --- patients ---

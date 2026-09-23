@@ -214,12 +214,24 @@ await step('U6 role filter narrows to doctors only', async () => {
   await navigate('/admin/users', 2600);
   await evaluate(setValue('#admin-user-role', 'DOCTOR'));
   await sleep(900);
-  const body = await evaluate('document.body.innerText');
+  // Count the rendered rows and compare them to the API's DOCTOR set by id.
+  // This step previously asserted `expectedDoctors.length === 6`, which was a
+  // hidden dependency on the seed having exactly six doctors. The seed now also
+  // provides a PENDING and a REJECTED doctor (DEFERRED item 3), so the literal
+  // is wrong — and a literal was the wrong instrument here anyway: `GET
+  // /admin/users` excludes ADMIN, so the count is derived truth, not fixture.
+  // What this step must prove is that a DOCTOR-only filter returns doctors and
+  // ONLY doctors, which the set comparison below proves directly.
   const expectedDoctors = (await apiUsers()).filter((u) => u.role === 'DOCTOR');
-  assert(expectedDoctors.length === 6, `seed expectation changed: ${expectedDoctors.length} doctors`);
+  const expectedIds = expectedDoctors.map((u) => u.id).sort();
+  const rows = await evaluate(`Array.from(document.querySelectorAll('[data-testid^="admin-user-row-"]')).map(el => el.getAttribute('data-testid').replace('admin-user-row-','')).sort()`);
+  assert(expectedIds.length >= 6, `expected at least the six seeded doctors, API reports ${expectedIds.length}`);
+  assert(rows.length === expectedIds.length, `DOCTOR filter rendered ${rows.length} rows, API has ${expectedIds.length}`);
+  assert(JSON.stringify(rows) === JSON.stringify(expectedIds), `DOCTOR rows differ from API:\n got=${rows.join(',')}\n exp=${expectedIds.join(',')}`);
+  const body = await evaluate('document.body.innerText');
   assert(body.includes('Dr. Rohan Patel'), 'doctors missing after role filter');
   assert(!body.includes('jordan.lee@example.com'), 'patient leaked into a DOCTOR-only filter');
-  return `${expectedDoctors.length} doctors, no patients`;
+  return `${rows.length} doctors (by id from the API), no patients`;
 });
 
 await step('U7 status filter narrows to the suspended account', async () => {
